@@ -127,3 +127,21 @@ simple5.fit <- sem(simple5.mod, data = triad.dt, estimator = "ML")
 
 # Serial Mediation
 # AMYLOID -> TAU -> HVR -> COG
+serial1.mod <- '
+  # Latent variables
+  HVR =~ HVR_l + HVR_r
+  TAU =~ TAU_braak1 + TAU_braak2 + TAU_braak3 +
+    TAU_braak4 + TAU_braak5 + TAU_braak6
+  # Direct effect: AMY -> COG
+  MOCA_score ~ z * AMYLOID + SEX_n + AGE_scan + APOE_n + EDUC
+  # Mediators
+  # AMY -> TAU
+  TAU ~ a1 * AMYLOID + SEX_n + AGE_scan + APOE_n
+  # AMY -> TAU -> HVR
+  HVR ~ a * AMYLOID + SEX_n + AGE_scan + APOE_n
+  MOCA_score ~ b * HVR
+  # Indirect effect
+  indirect := a * b
+  # Total effect
+  total := c + (a*b)
+'
