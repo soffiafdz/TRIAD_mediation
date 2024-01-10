@@ -22,11 +22,16 @@ if (any(!file.exists(fpaths))) {
 rm(fpaths)
 
 ## Read/source HVR
-vols.rds    <- here("data/rds/hcv_hvr.rds")
+#vols.rds    <- here("data/rds", paste("hcv_hvr_adj-", c("all", "old"), ".rds"))
+# Pick between controlling with old subset or old + youth
+#vols.rds    <- here("data/rds/hcv_hvr_adj-all.rds") # Controlled by Old + Youth
+vols.rds    <- here("data/rds/hcv_hvr_adj-old.rds") # Controlled by just old
 if (file.exists(vols.rds)) {
-  vols.dt   <- read_rds(vols.rds)
+  vols.dt <- read_rds(vols.rds)
 } else {
   here("code/calc_hvr.R") |> source()
+  #vols.dt <- vols_all.dt # Youth & Old
+  vols.dt <- vols_old.dt # Just Old
 }
 rm(vols.rds)
 
@@ -79,7 +84,7 @@ covars.dt   <- neuropsy.dt[!(PTID == "MRT63" & is.na(EVALDATE))
 
 # All baseline data
 triad.dt    <- demog.dt[covars.dt, on = .(PTID, VISIT)]
-rm(vols.dt, pet.dt, imag.dt, neuropsy.dt, covars.dt, demog.dt)
+#rm(vols.dt, pet.dt, imag.dt, neuropsy.dt, covars.dt, demog.dt)
 
 ## Data cleaning
 # Sex
@@ -117,34 +122,39 @@ triad_bl.dt <- triad.dt[VISIT == "VM00"][sessn, on = "PTID"]
 rm(sessn)
 
 ## Table1
-triad_bl.dt[,
-            .(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
-              MOCA_score, SESS,
-              #RAVLT_intro, RAVLT_raw, RAVLT_rep,
+fname       <- here("data/derivatives/table1.docx")
+if (!file.exists(fname)) {
+  triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
+              .(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
+                MOCA_score, SESS,
+                #RAVLT_intro, RAVLT_raw, RAVLT_rep,
 
-              AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
-                                  TAU_braak4 + TAU_braak5 + TAU_braak6),
-              HCv_l, HCv_r, HVR_l, HVR_r)] |>
-  tbl_summary(by = DX_clean,
-              label = list(SEX ~ "Sex",
-                           AGE_scan ~ "Age (years)",
-                           EDUC ~ "Education (years)",
-                           APOE ~ "APOE4 alleles",
-                           MOCA_score ~ "MoCA score",
-                           #RAVLT_raw ~ "RAVLT (raw score)",
-                           #RAVLT_intro ~ "RAVLT (intro score)",
-                           #RAVLT_rep ~ "RAVLT (rep score)",
-                           SESS ~ "Number of visits",
-                           AMYLOID ~ "Amyloid (PET)",
-                           TAU_sum ~ "Tau (PET)",
-                           HCv_l ~ "HC vol (left)",
-                           HCv_r ~ "HC vol (right)",
-                           HVR_l ~ "HVR (left)",
-                           HVR_r ~ "HVR (right)"),
-              statistic = all_continuous() ~ "{mean} ({sd})",
-              #missing_text = "Missing") |>
-              missing = "no") |>
-  modify_header(label ~ "**Variable**") |>
-  #modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
-  add_n() |> add_p() |> as_flex_table() |>
-  flextable::save_as_docx(path = here("data/derivatives/table1.docx"))
+                AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
+                                    TAU_braak4 + TAU_braak5 + TAU_braak6),
+                #HCv_l, HCv_r, HVR_l, HVR_r)] |>
+                HVR = (HVR_l + HVR_r) /2)] |>
+    tbl_summary(by = DX_clean,
+                label = list(SEX ~ "Sex",
+                             AGE_scan ~ "Age (years)",
+                             EDUC ~ "Education (years)",
+                             APOE ~ "APOE4 alleles",
+                             MOCA_score ~ "MoCA score",
+                             #RAVLT_raw ~ "RAVLT (raw score)",
+                             #RAVLT_intro ~ "RAVLT (intro score)",
+                             #RAVLT_rep ~ "RAVLT (rep score)",
+                             SESS ~ "Number of visits",
+                             AMYLOID ~ "Amyloid (PET)",
+                             TAU_sum ~ "Tau (PET)"),
+                             #HCv_l ~ "HC vol (left)",
+                             #HCv_r ~ "HC vol (right)",
+                             #HVR_l ~ "HVR (left)",
+                             #HVR_r ~ "HVR (right)"),
+                statistic = all_continuous() ~ "{mean} ({sd})",
+                #missing_text = "Missing") |>
+                missing = "no") |>
+    modify_header(label ~ "**Variable**") |>
+    #modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
+    #add_n() |>
+    add_p() |> as_flex_table() |>
+    flextable::save_as_docx(path = fname)
+}

@@ -16,10 +16,11 @@ rm(fname1, fname2)
 ## DTs
 # Demographics
 demog_cols  <- c("FID", "visit", "DX_cat",
-                 "dob", "sex", "edu", "apoe_add")
+                 "dob", "sex", "edu", "apoe_add", "WMH_wm", "MMSE")
 demog.dt    <- dt1[, ..demog_cols]
 setnames(demog.dt, demog_cols,
-         c("PTID", "VISIT", "DX", "DOB", "SEX", "EDUC", "APOE_n"))
+         c("PTID", "VISIT", "DX", "DOB", "SEX", "EDUC", "APOE_n", "WMH",
+           "MMSE"))
 fwrite(demog.dt, here("data/demographics.csv"))
 rm(demog_cols)
 
