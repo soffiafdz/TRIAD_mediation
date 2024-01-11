@@ -6,6 +6,9 @@ library(lubridate)
 library(readr)
 library(gtsummary)
 
+## Recreate tables
+redo_tables <- FALSE
+
 ## Read/Parse CSV files
 fpaths      <- here("data", c("demographics.csv",
                               "neuropsych_eval.csv",
@@ -90,6 +93,13 @@ triad.dt    <- demog.dt[covars.dt, on = .(PTID, VISIT)]
 # Sex
 triad.dt[, SEX := factor(SEX, labels = c("Female", "Male"))]
 
+# Braak Staging
+triad.dt[, TAU_braak_stage := as.numeric(TAU_braak_stage)]
+triad.dt[TAU_braak_stage == 0, TAU_braak_group := "0"]
+triad.dt[TAU_braak_stage %in% 1:2, TAU_braak_group := "1 & 2"]
+triad.dt[TAU_braak_stage %in% 3:4, TAU_braak_group := "3 & 4"]
+triad.dt[TAU_braak_stage %in% 5:6, TAU_braak_group := "5 & 6"]
+
 # Time differences
 triad.dt[, AGE_scan := interval(ymd(DOB), ymd(SCANDATE)) / years(1)]
 triad.dt[, EVAL_delay := ymd(EVALDATE) - ymd(SCANDATE)]
@@ -111,7 +121,8 @@ write_rds(triad.dt, here("data/rds/triad.rds"))
 
 # TODO: Decide if remove NAs
 # Must have: Imaging
-triad.dt    <- triad.dt[!is.na(AMYLOID) & !is.na(TAU_braak1) & !is.na(HVR_l)]
+#triad.dt    <- triad.dt[!is.na(AMYLOID) & !is.na(TAU_braak1) & !is.na(HVR_l)]
+triad.dt    <- triad.dt[!is.na(TAU_braak1) & !is.na(HVR_l)]
 
 # Must have: Neuropsy
 #triad.dt    <- triad.dt[!is.na(RAVLT_raw) & !is.na(MOCA_score)]
@@ -122,8 +133,8 @@ triad_bl.dt <- triad.dt[VISIT == "VM00"][sessn, on = "PTID"]
 rm(sessn)
 
 ## Table1
-fname       <- here("data/derivatives/table1.docx")
-if (!file.exists(fname)) {
+fname       <- here("data/derivatives/table1_dx.docx")
+if (!file.exists(fname) | redo_tables) {
   triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
               .(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
                 MOCA_score, SESS,
@@ -145,6 +156,41 @@ if (!file.exists(fname)) {
                              SESS ~ "Number of visits",
                              AMYLOID ~ "Amyloid (PET)",
                              TAU_sum ~ "Tau (PET)"),
+                             #HCv_l ~ "HC vol (left)",
+                             #HCv_r ~ "HC vol (right)",
+                             #HVR_l ~ "HVR (left)",
+                             #HVR_r ~ "HVR (right)"),
+                statistic = all_continuous() ~ "{mean} ({sd})",
+                #missing_text = "Missing") |>
+                missing = "no") |>
+    modify_header(label ~ "**Variable**") |>
+    #modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
+    #add_n() |>
+    add_p() |> as_flex_table() |>
+    flextable::save_as_docx(path = fname)
+}
+
+fname       <- here("data/derivatives/table1_braak.docx")
+if (!file.exists(fname) | redo_tables) {
+  triad.dt[!is.na(APOE_n) & !is.na(MOCA_score) & !is.na(TAU_braak_group),
+           .(TAU_braak_group, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
+             MOCA_score, AMYLOID,
+             #TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
+                           #TAU_braak4 + TAU_braak5 + TAU_braak6),
+             #HCv_l, HCv_r, HVR_l, HVR_r)] |>
+             HVR = (HVR_l + HVR_r) / 2)] |>
+    tbl_summary(by = TAU_braak_group,
+                label = list(SEX ~ "Sex",
+                             AGE_scan ~ "Age (years)",
+                             EDUC ~ "Education (years)",
+                             APOE ~ "APOE4 alleles",
+                             MOCA_score ~ "MoCA score",
+                             #RAVLT_raw ~ "RAVLT (raw score)",
+                             #RAVLT_intro ~ "RAVLT (intro score)",
+                             #RAVLT_rep ~ "RAVLT (rep score)",
+                             #SESS ~ "Number of visits",
+                             #TAU_sum ~ "Tau (PET)",
+                             AMYLOID ~ "Amyloid (PET)"),
                              #HCv_l ~ "HC vol (left)",
                              #HCv_r ~ "HC vol (right)",
                              #HVR_l ~ "HVR (left)",
