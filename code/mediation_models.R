@@ -26,7 +26,7 @@ triad.dt[, SEX_n := as.numeric(SEX) - 1]
 triad.dt    <- triad.dt[!is.na(AMYLOID) & !is.na(TAU_braak1)]
 
 # Remove youth and AD
-triad.dt    <-triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
+triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
 triad.dt[, DX := factor(DX, levels = c("CN", "MCI"))]
 
 # 1 - HVR (average for both sides)
@@ -58,7 +58,7 @@ labels_mem  <- c(RAVLT_rep = "RAVLT (rep)",
 ## Amyloid -> TAU -> HC (HVR)
 simple1.mod <- '
   # Latent variables
-  HVR =~ HVR_l + HVR_rr
+  HVR =~ HVR_lr + HVR_rr
   TAU =~ TAU_braak1 + TAU_braak2 + TAU_braak3 +
     TAU_braak4 + TAU_braak5 + TAU_braak6
   # Regressions
