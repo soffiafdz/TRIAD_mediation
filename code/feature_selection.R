@@ -27,21 +27,17 @@ if (file.exists(fpath)) {
 }
 
 ## Data Cleaning
-# Convert Braak Staging to float
-triad.dt[, TAU_braak_stage := as.numeric(TAU_braak_stage)]
-
 # Filter
 triad.dt    <- triad.dt[!is.na(MOCA_score) &
-                        !is.na(TAU_braak_group) &
-                        !DX_clean %in% c("Young", "Other"),
-                        .(PTID, VISIT, TAU_braak_group, MOCA_score)]
+                        !DX_clean %in% c("Young", "Other", "AD"),
+                        .(PTID, VISIT, MOCA_score)]
 
 # Cerebra dictionary
 dict_roi    <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
 
 # Amyloid
 amy_roi.dt  <- cerebra.dt[!is.na(AMYLOID),
-                          .(PTID, VISIT, AMYLOID,
+                          .(PTID, VISIT, AMYLOID = AMYLOID * 10000/ VOL,
                             ROI = sprintf("AMY_%03i", LABEL_id))] |>
   dcast(... ~ ROI, value.var = "AMYLOID")
 
@@ -50,7 +46,7 @@ amy_roi.dt  <- amy_roi.dt[complete.cases(amy_roi.dt)]
 
 # Tau
 tau_roi.dt  <- cerebra.dt[!is.na(TAU),
-                          .(PTID, VISIT, TAU,
+                          .(PTID, VISIT, TAU = TAU * 10000 / VOL,
                             ROI = sprintf("TAU_%03i", LABEL_id))] |>
   dcast(... ~ ROI, value.var = "TAU")
 
@@ -67,41 +63,14 @@ if (!file.exists(fpath) | reselect_features) {
   cerebra_rois <- stringr::str_subset(names(amy_roi.dt), "AMY")
 
   # Stage 0 : Lack of tau aggregation
-  rois_amy_0  <- Boruta(amy_roi.dt[TAU_braak_group == "0", ..cerebra_rois],
-                        amy_roi.dt[TAU_braak_group == "0", MOCA_score]) |>
-    TentativeRoughFix() |>
+  rois_amy  <- Boruta(amy_roi.dt[, ..cerebra_rois],
+                      amy_roi.dt[, MOCA_score]) |>
+    #TentativeRoughFix() |>
     #getSelectedAttributes()
     attStats() |>
     as.data.table(keep.rownames = "id")
 
-  # Stage 1 & 2 : Initial stages
-  rois_amy_12 <- Boruta(amy_roi.dt[TAU_braak_group == "1 & 2", ..cerebra_rois],
-                        amy_roi.dt[TAU_braak_group == "1 & 2", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  # Stage 3 & 4 : Moderate accumulation
-  rois_amy_34 <- Boruta(amy_roi.dt[TAU_braak_group == "3 & 4", ..cerebra_rois],
-                        amy_roi.dt[TAU_braak_group == "3 & 4", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  # Stage 5 & 6 : Severe accumulation
-  rois_amy_56 <- Boruta(amy_roi.dt[TAU_braak_group == "5 & 6", ..cerebra_rois],
-                        amy_roi.dt[TAU_braak_group == "5 & 6", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  rois_amy  <- list(rois_amy_0, rois_amy_12, rois_amy_34, rois_amy_56)
-  names(rois_amy) <- paste0("Braak_stage_", c("0", "1&2", "3&4", "5&6"))
   write_rds(rois_amy, fpath)
-  rm(rois_amy_0, rois_amy_12, rois_amy_34, rois_amy_56)
 } else {
   rois_amy  <- read_rds(fpath)
 }
@@ -114,51 +83,14 @@ if (!file.exists(fpath) | reselect_features) {
 
   cerebra_rois <- stringr::str_subset(names(tau_roi.dt), "TAU_\\d{3}")
 
-  #rois_tau  <- Boruta(tau_roi.dt[, ..cerebra_rois],
-                      #tau_roi.dt[, MOCA_score]) |>
+  rois_tau  <- Boruta(tau_roi.dt[, ..cerebra_rois],
+                      tau_roi.dt[, MOCA_score]) |>
     #TentativeRoughFix() |>
-    ##getSelectedAttributes()
-    #attStats() |>
-    #as.data.table(keep.rownames = "id")
-
-  #write_rds(rois_tau, fpath)
-
-  # Stage 0 : Lack of tau aggregation
-  rois_tau_0  <- Boruta(tau_roi.dt[TAU_braak_group == "0", ..cerebra_rois],
-                        tau_roi.dt[TAU_braak_group == "0", MOCA_score]) |>
-    TentativeRoughFix() |>
     #getSelectedAttributes()
     attStats() |>
     as.data.table(keep.rownames = "id")
 
-  # Stage 1 & 2 : Initial stages
-  rois_tau_12 <- Boruta(tau_roi.dt[TAU_braak_group == "1 & 2", ..cerebra_rois],
-                        tau_roi.dt[TAU_braak_group == "1 & 2", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  # Stage 3 & 4 : Moderate accumulation
-  rois_tau_34 <- Boruta(tau_roi.dt[TAU_braak_group == "3 & 4", ..cerebra_rois],
-                        tau_roi.dt[TAU_braak_group == "3 & 4", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  # Stage 5 & 6 : Severe accumulation
-  rois_tau_56 <- Boruta(tau_roi.dt[TAU_braak_group == "5 & 6", ..cerebra_rois],
-                        tau_roi.dt[TAU_braak_group == "5 & 6", MOCA_score]) |>
-    TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
-
-  rois_tau  <- list(rois_tau_0, rois_tau_12, rois_tau_34, rois_tau_56)
-  names(rois_tau) <- paste0("Braak_stage_", c("0", "1&2", "3&4", "5&6"))
   write_rds(rois_tau, fpath)
-  rm(rois_tau_0, rois_tau_12, rois_tau_34, rois_tau_56)
 } else {
   rois_tau  <- read_rds(fpath)
 }

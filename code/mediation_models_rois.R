@@ -8,6 +8,7 @@ library(lavaan)
 library(lavaanPlot)
 
 ## Refit models
+#refit_models <- TRUE
 refit_models <- TRUE
 
 ## Print plots ### Needs to be done outside renv
@@ -49,15 +50,14 @@ rm(fpaths)
 triad.dt[, SEX_n := as.numeric(SEX) - 1]
 
 # Remove youth and other dementias
-triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other")]
-triad.dt[, DX := factor(DX, levels = c("CN", "MCI", "AD"))]
+triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
+#triad.dt[, DX := factor(DX, levels = c("CN", "MCI", "AD"))]
 
 # 1 - HVR (average for both sides)
 #triad.dt[, `:=`(HVR_lr = 1 - HVR_l, HVR_rr = 1 - HVR_r)]
 triad.dt[, `:=`(HVR_mean_inv = 1 - (HVR_l + HVR_r) / 2)]
 
-triad.dt    <- triad.dt[, .(PTID, VISIT, TAU_braak_group,
-                            SEX_n, AGE_scan, EDUC, APOE_n,
+triad.dt    <- triad.dt[, .(PTID, VISIT, SEX_n, AGE_scan, EDUC, APOE_n,
                             HVR_mean_inv, MOCA_score)]
 
 # Merge triad and cerebra data
@@ -79,9 +79,7 @@ tau_roi.dt  <- cerebra.dt[!is.na(TAU),
   dcast(... ~ ROI, value.var = "TAU")
 
 triad.dt  <- tau_roi.dt[amy_roi.dt, on = .(PTID, VISIT)]
-triad.dt  <- triad.dt[!is.na(AMY_001) &
-                      !is.na(TAU_001) &
-                      !is.na(TAU_braak_group)]
+triad.dt  <- triad.dt[!is.na(AMY_001) & !is.na(TAU_001)]
 rm(amy_roi.dt, tau_roi.dt)
 
 ## Labels
@@ -90,22 +88,15 @@ labels_hcv  <- c(HCv_l = "Left", HCv_r = "Right")
 labels_hvr  <- c(HVR = "HC-atrophy",
                  HVR_lr = "1-HVR (Left)",
                  HVR_rr = "1-HVR (Right)")
-labels_tau  <- c(TAU_braak1 = "Braak1",
-                 TAU_braak2 = "Braak2",
-                 TAU_braak3 = "Braak3",
-                 TAU_braak4 = "Braak4",
-                 TAU_braak5 = "Braak5",
-                 TAU_braak6 = "Braak6")
 labels_hvr2 <- c(HVR_mean_inv = "HC-atrophy")
 labels_moca <- c(MOCA_score = "MoCA")
 
 ### Models with latent variables ###
-# Lack of Tau aggregation (Braak Stage 0)
 # Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[[1]][decision == "Confirmed", id]
-tau_features  <- rois_tau[[1]][decision == "Confirmed", id]
+amy_features  <- rois_amy[decision == "Confirmed", id]
+tau_features  <- rois_tau[decision == "Confirmed", id]
 
-latent1.mod <-
+latent.mod <-
   str_glue("
            # Latent variables
            AMYLOID =~ {paste(amy_features, collapse = ' + ')}
@@ -128,142 +119,21 @@ latent1.mod <-
            propTotal := ieTotal/ Total
            ")
 
-fname <- here("data/rds/mediation_rois_latent1.rds")
+fname <- here("data/rds/mediation_rois_latent.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_latent1.fit <- sem(latent1.mod,
-                               data = triad.dt[TAU_braak_group == "0"],
-                               estimator = "ML")
+  model_rois_latent.fit <- sem(latent.mod, data = triad.dt, estimator = "ML")
                      #se = "bootstrap", bootstrap = 10000)
-  write_rds(model_rois_latent1.fit, fname)
+  write_rds(model_rois_latent.fit, fname)
 } else {
-  model_rois_latent1.fit <- read_rds(fname)
-}
-rm(fname)
-
-# Initial stages of Tau aggregation (Braak Stage 1 & 2)
-# Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[[2]][decision == "Confirmed", id]
-tau_features  <- rois_tau[[2]][decision == "Confirmed", id]
-
-latent2.mod <-
-  str_glue("
-           # Latent variables
-           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
-           TAU =~ {paste(tau_features, collapse = ' + ')}
-           # Regressions
-           AMYLOID ~ SEX_n + AGE_scan
-           TAU ~ a * AMYLOID + SEX_n + AGE_scan
-           HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
-           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
-           # Total effect
-           Total := d + (a * e) + (b * f)
-           # Indirect effects
-           ieAMY := d
-           propAMY := ieAMY / Total
-           ieTAU := a * e
-           propTAU := ieTAU / Total
-           ieHVR := b * f
-           propHVR := ieHVR / Total
-           ieTotal := (a * e) + (b * f)
-           propTotal := ieTotal/ Total
-           ")
-
-fname <- here("data/rds/mediation_rois_latent2.rds")
-if (!file.exists(fname) | refit_models) {
-  model_rois_latent2.fit <- sem(latent2.mod,
-                               data = triad.dt[TAU_braak_group == "1 & 2"],
-                               estimator = "ML")
-                     #se = "bootstrap", bootstrap = 10000)
-  write_rds(model_rois_latent2.fit, fname)
-} else {
-  model_rois_latent2.fit <- read_rds(fname)
-}
-rm(fname)
-
-# Moderate stages of Tau aggregation (Braak Stage 3 & 4)
-# Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[[3]][decision == "Confirmed", id]
-tau_features  <- rois_tau[[3]][decision == "Confirmed", id]
-
-latent3.mod <-
-  str_glue("
-           # Latent variables
-           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
-           TAU =~ {paste(tau_features, collapse = ' + ')}
-           # Regressions
-           AMYLOID ~ SEX_n + AGE_scan
-           TAU ~ a * AMYLOID + SEX_n + AGE_scan
-           HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
-           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
-           # Total effect
-           Total := d + (a * e) + (b * f)
-           # Indirect effects
-           ieAMY := d
-           propAMY := ieAMY / Total
-           ieTAU := a * e
-           propTAU := ieTAU / Total
-           ieHVR := b * f
-           propHVR := ieHVR / Total
-           ieTotal := (a * e) + (b * f)
-           propTotal := ieTotal/ Total
-           ")
-
-fname <- here("data/rds/mediation_rois_latent3.rds")
-if (!file.exists(fname) | refit_models) {
-  model_rois_latent3.fit <- sem(latent3.mod,
-                               data = triad.dt[TAU_braak_group == "3 & 4"],
-                               estimator = "ML")
-                     #se = "bootstrap", bootstrap = 10000)
-  write_rds(model_rois_latent3.fit, fname)
-} else {
-  model_rois_latent3.fit <- read_rds(fname)
-}
-rm(fname)
-
-# Severe stages of Tau aggregation (Braak Stage 5 & 6)
-# Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[[4]][decision == "Confirmed", id]
-tau_features  <- rois_tau[[4]][decision == "Confirmed", id]
-
-latent4.mod <-
-  str_glue("
-           # Latent variables
-           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
-           TAU =~ {paste(tau_features, collapse = ' + ')}
-           # Regressions
-           AMYLOID ~ SEX_n + AGE_scan
-           TAU ~ a * AMYLOID + SEX_n + AGE_scan
-           HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
-           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
-           # Total effect
-           Total := d + (a * e) + (b * f)
-           # Indirect effects
-           ieAMY := d
-           propAMY := ieAMY / Total
-           ieTAU := a * e
-           propTAU := ieTAU / Total
-           ieHVR := b * f
-           propHVR := ieHVR / Total
-           ieTotal := (a * e) + (b * f)
-           propTotal := ieTotal/ Total
-           ")
-
-fname <- here("data/rds/mediation_rois_latent4.rds")
-if (!file.exists(fname) | refit_models) {
-  model_rois_latent4.fit <- sem(latent4.mod,
-                               data = triad.dt[TAU_braak_group == "5 & 6"],
-                               estimator = "ML")
-                     #se = "bootstrap", bootstrap = 10000)
-  write_rds(model_rois_latent4.fit, fname)
-} else {
-  model_rois_latent4.fit <- read_rds(fname)
+  model_rois_latent.fit <- read_rds(fname)
 }
 rm(fname)
 
 ### Model with all mediators ###
-## Lack of Tau aggregation (Braak Stage 0)
-amy_features  <- rois_amy[[4]][decision == "Confirmed", id]
-tau_features  <- rois_tau[[4]][decision == "Confirmed", id]
+amy_features  <- rois_amy[decision == "Confirmed", id]
+tau_features  <- rois_tau[decision == "Confirmed", id]
+#amy_features  <- rois_amy[meanImp > 5, id]
+#tau_features  <- rois_tau[meanImp > 5, id]
 
 # Text parsing
 amy_covars    <- paste(amy_features, collapse = " + ")
@@ -274,7 +144,7 @@ tau_regress   <- sprintf("%s ~ %s + SEX_n + AGE_scan",
                          tau_features, amy_covars)
 
 # Model definition
-detailed1.mod <-
+detailed.mod <-
   str_glue("
 ## Regressions ##
 # Amyloid
@@ -285,14 +155,27 @@ HVR_mean_inv ~ {amy_covars} + {tau_covars} + SEX_n + AGE_scan
 MOCA_score ~ {amy_covars} + {tau_covars} + HVR_mean_inv + SEX_n + AGE_scan + EDUC
 ")
 
-fname <- here("data/rds/mediation_rois_detailed1.rds")
+fname <- here("data/rds/mediation_rois_detailed.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_detailed1.fit <- sem(detailed1.mod,
-                               data = triad.dt,
-                               estimator = "ML")
+  model_rois_detailed.fit <- sem(detailed.mod, data = triad.dt,
+                                 estimator = "ML")
                      #se = "bootstrap", bootstrap = 10000)
-  write_rds(model_rois_detailed1.fit, fname)
+  write_rds(model_rois_detailed.fit, fname)
 } else {
-  model_rois_detailed1.fit <- read_rds(fname)
+  model_rois_detailed.fit <- read_rds(fname)
 }
 rm(fname)
+
+# Estimates data.table
+estimates.dt  <- parameterEstimates(model_rois_detailed.fit,
+                                    standardized = TRUE) |>
+           as.data.table()
+
+# Remove variances data
+estimates.dt  <- estimates.dt[op != "~~"]
+
+# Adjust for multiple comparisons
+estimates.dt[, pvalue_adj := p.adjust(pvalue, method = "bonferroni")]
+
+estimates.dt[, lhs_roi_id := as.numeric(str_extract(lhs, "\\d{3}"))]
+estimates.dt[, rhs_roi_id := as.numeric(str_extract(rhs, "\\d{3}"))]
