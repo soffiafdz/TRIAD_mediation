@@ -7,7 +7,7 @@ library(readr)
 library(gtsummary)
 
 ## Recreate tables
-redo_tables <- FALSE
+redo_tables <- TRUE
 
 ## Read/Parse CSV files
 fpaths      <- here("data", c("demographics.csv",
@@ -136,26 +136,30 @@ rm(sessn)
 fname       <- here("data/derivatives/table1_dx.docx")
 if (!file.exists(fname) | redo_tables) {
   triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
-              .(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
+              #.(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
+  #triad_bl.dt[!is.na(MOCA_score) & DX %in% c("CN", "MCI", "AD"),
+              .(DX_clean, SEX, AGE_scan, EDUC,
                 MOCA_score, SESS,
                 #RAVLT_intro, RAVLT_raw, RAVLT_rep,
 
-                AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
-                                    TAU_braak4 + TAU_braak5 + TAU_braak6),
+                TAU_braak_stage = TAU_braak_group, AMYLOID,
+                #AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
+                                    #TAU_braak4 + TAU_braak5 + TAU_braak6),
                 #HCv_l, HCv_r, HVR_l, HVR_r)] |>
                 HVR = (HVR_l + HVR_r) /2)] |>
     tbl_summary(by = DX_clean,
                 label = list(SEX ~ "Sex",
                              AGE_scan ~ "Age (years)",
                              EDUC ~ "Education (years)",
-                             APOE ~ "APOE4 alleles",
+                             #APOE ~ "APOE4 alleles",
                              MOCA_score ~ "MoCA score",
                              #RAVLT_raw ~ "RAVLT (raw score)",
                              #RAVLT_intro ~ "RAVLT (intro score)",
                              #RAVLT_rep ~ "RAVLT (rep score)",
                              SESS ~ "Number of visits",
-                             AMYLOID ~ "Amyloid (PET)",
-                             TAU_sum ~ "Tau (PET)"),
+                             TAU_braak_stage ~ "Braak Stage (Tau)",
+                             AMYLOID ~ "Amyloid (PET)"),
+                             #TAU_sum ~ "Tau (PET)"),
                              #HCv_l ~ "HC vol (left)",
                              #HCv_r ~ "HC vol (right)",
                              #HVR_l ~ "HVR (left)",
@@ -170,37 +174,37 @@ if (!file.exists(fname) | redo_tables) {
     flextable::save_as_docx(path = fname)
 }
 
-fname       <- here("data/derivatives/table1_braak.docx")
-if (!file.exists(fname) | redo_tables) {
-  triad.dt[!is.na(APOE_n) & !is.na(MOCA_score) & !is.na(TAU_braak_group),
-           .(TAU_braak_group, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
-             MOCA_score, AMYLOID,
-             #TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
-                           #TAU_braak4 + TAU_braak5 + TAU_braak6),
-             #HCv_l, HCv_r, HVR_l, HVR_r)] |>
-             HVR = (HVR_l + HVR_r) / 2)] |>
-    tbl_summary(by = TAU_braak_group,
-                label = list(SEX ~ "Sex",
-                             AGE_scan ~ "Age (years)",
-                             EDUC ~ "Education (years)",
-                             APOE ~ "APOE4 alleles",
-                             MOCA_score ~ "MoCA score",
-                             #RAVLT_raw ~ "RAVLT (raw score)",
-                             #RAVLT_intro ~ "RAVLT (intro score)",
-                             #RAVLT_rep ~ "RAVLT (rep score)",
-                             #SESS ~ "Number of visits",
-                             #TAU_sum ~ "Tau (PET)",
-                             AMYLOID ~ "Amyloid (PET)"),
-                             #HCv_l ~ "HC vol (left)",
-                             #HCv_r ~ "HC vol (right)",
-                             #HVR_l ~ "HVR (left)",
-                             #HVR_r ~ "HVR (right)"),
-                statistic = all_continuous() ~ "{mean} ({sd})",
-                #missing_text = "Missing") |>
-                missing = "no") |>
-    modify_header(label ~ "**Variable**") |>
-    #modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
-    #add_n() |>
-    add_p() |> as_flex_table() |>
-    flextable::save_as_docx(path = fname)
-}
+#fname       <- here("data/derivatives/table1_braak.docx")
+#if (!file.exists(fname) | redo_tables) {
+  #triad.dt[!is.na(APOE_n) & !is.na(MOCA_score) & !is.na(TAU_braak_group),
+           #.(TAU_braak_group, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
+             #MOCA_score, AMYLOID,
+             ##TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
+                           ##TAU_braak4 + TAU_braak5 + TAU_braak6),
+             ##HCv_l, HCv_r, HVR_l, HVR_r)] |>
+             #HVR = (HVR_l + HVR_r) / 2)] |>
+    #tbl_summary(by = TAU_braak_group,
+                #label = list(SEX ~ "Sex",
+                             #AGE_scan ~ "Age (years)",
+                             #EDUC ~ "Education (years)",
+                             #APOE ~ "APOE4 alleles",
+                             #MOCA_score ~ "MoCA score",
+                             ##RAVLT_raw ~ "RAVLT (raw score)",
+                             ##RAVLT_intro ~ "RAVLT (intro score)",
+                             ##RAVLT_rep ~ "RAVLT (rep score)",
+                             ##SESS ~ "Number of visits",
+                             ##TAU_sum ~ "Tau (PET)",
+                             #AMYLOID ~ "Amyloid (PET)"),
+                             ##HCv_l ~ "HC vol (left)",
+                             ##HCv_r ~ "HC vol (right)",
+                             ##HVR_l ~ "HVR (left)",
+                             ##HVR_r ~ "HVR (right)"),
+                #statistic = all_continuous() ~ "{mean} ({sd})",
+                ##missing_text = "Missing") |>
+                #missing = "no") |>
+    #modify_header(label ~ "**Variable**") |>
+    ##modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
+    ##add_n() |>
+    #add_p() |> as_flex_table() |>
+    #flextable::save_as_docx(path = fname)
+#}
