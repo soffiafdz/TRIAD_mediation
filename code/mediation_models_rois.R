@@ -50,14 +50,15 @@ rm(fpaths)
 triad.dt[, SEX_n := as.numeric(SEX) - 1]
 
 # Remove youth and other dementias
-triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
-#triad.dt[, DX := factor(DX, levels = c("CN", "MCI", "AD"))]
+#triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
+triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other")]
+triad.dt[, DX := factor(DX, levels = c("CN", "MCI", "AD"))]
 
 # 1 - HVR (average for both sides)
 #triad.dt[, `:=`(HVR_lr = 1 - HVR_l, HVR_rr = 1 - HVR_r)]
 triad.dt[, `:=`(HVR_mean_inv = 1 - (HVR_l + HVR_r) / 2)]
 
-triad.dt    <- triad.dt[, .(PTID, VISIT, SEX_n, AGE_scan, EDUC, APOE_n,
+triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC, APOE_n,
                             HVR_mean_inv, MOCA_score)]
 
 # Merge triad and cerebra data
@@ -95,6 +96,8 @@ labels_moca <- c(MOCA_score = "MoCA")
 # Confirmed important features from Boruta algorithm
 amy_features  <- rois_amy[decision == "Confirmed", id]
 tau_features  <- rois_tau[decision == "Confirmed", id]
+#amy_features  <- rois_amy[meanImp > 4, id]
+#tau_features  <- rois_tau[meanImp > 4, id]
 
 latent.mod <-
   str_glue("
@@ -106,22 +109,44 @@ latent.mod <-
            TAU ~ a * AMYLOID + SEX_n + AGE_scan
            HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
            MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
+           # HVR mediation
+           # Direct effect
+           dAMY_HVR  := b
+           # Indirect effect
+           iTAU_HVR  := a * c
            # Total effect
-           Total := d + (a * e) + (b * f)
+           Total_HVR := dAMY_HVR + iTAU_HVR
+           # MOCA mediation
+           # Direct effect
+           dAMY_MOCA := d
            # Indirect effects
-           ieAMY := d
-           propAMY := ieAMY / Total
-           ieTAU := a * e
-           propTAU := ieTAU / Total
-           ieHVR := b * f
-           propHVR := ieHVR / Total
-           ieTotal := (a * e) + (b * f)
-           propTotal := ieTotal/ Total
+           iTAU_MOCA := a * e
+           iHVR_MOCA := Total_HVR * f
+           # Total effects
+           iTotal    := iTAU_MOCA + iHVR_MOCA
+           Total_MOCA := iTotal + dAMY_MOCA
+           # Proportion analysis
+           propAMY_HVR := dAMY_HVR / Total_HVR
+           propTAU_HVR := iTAU_HVR / Total_HVR
+           propAMY_MOCA := dAMY_MOCA / Total_MOCA
+           propTAU_MOCA := iTAU_MOCA / Total_MOCA
+           propHVR_MOCA := iHVR_MOCA / Total_MOCA
+           propIndirect_MOCA := iTotal / Total_MOCA
            ")
 
+latent_play.mod <-
+  str_glue("
+           # Latent variables
+           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
+           TAU =~ {paste(tau_features, collapse = ' + ')}
+           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
+           ")
 fname <- here("data/rds/mediation_rois_latent.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_latent.fit <- sem(latent.mod, data = triad.dt, estimator = "ML")
+  model_rois_latent.fit <- sem(latent_play.mod,
+                               data = triad.dt[order(DX)],
+                               #group = "DX",
+                               estimator = "ML")
                      #se = "bootstrap", bootstrap = 10000)
   write_rds(model_rois_latent.fit, fname)
 } else {
@@ -130,10 +155,10 @@ if (!file.exists(fname) | refit_models) {
 rm(fname)
 
 ### Model with all mediators ###
-amy_features  <- rois_amy[decision == "Confirmed", id]
-tau_features  <- rois_tau[decision == "Confirmed", id]
-#amy_features  <- rois_amy[meanImp > 5, id]
-#tau_features  <- rois_tau[meanImp > 5, id]
+#amy_features  <- rois_amy[decision == "Confirmed", id]
+#tau_features  <- rois_tau[decision == "Confirmed", id]
+amy_features  <- rois_amy[meanImp > 4, id]
+tau_features  <- rois_tau[meanImp > 4, id]
 
 # Text parsing
 amy_covars    <- paste(amy_features, collapse = " + ")
@@ -157,7 +182,9 @@ MOCA_score ~ {amy_covars} + {tau_covars} + HVR_mean_inv + SEX_n + AGE_scan + EDU
 
 fname <- here("data/rds/mediation_rois_detailed.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_detailed.fit <- sem(detailed.mod, data = triad.dt,
+  model_rois_detailed.fit <- sem(detailed.mod,
+                                 data = triad.dt[order(DX)],
+                                 #group = "DX",
                                  estimator = "ML")
                      #se = "bootstrap", bootstrap = 10000)
   write_rds(model_rois_detailed.fit, fname)
