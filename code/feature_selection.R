@@ -30,15 +30,23 @@ if (file.exists(fpath)) {
 # Filter
 triad.dt    <- triad.dt[!is.na(MOCA_score) &
                         !DX_clean %in% c("Young", "Other", "AD"),
+                        #!DX_clean %in% c("Young", "Other"),
                         .(PTID, VISIT, MOCA_score)]
 
 # Cerebra dictionary
-dict_roi    <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
+# Use the right-side label
+dict_roi    <- unique(cerebra.dt[SIDE == "R", .(LABEL_id, LABEL_name)])
 
 # Amyloid
 amy_roi.dt  <- cerebra.dt[!is.na(AMYLOID),
-                          .(PTID, VISIT, AMYLOID = AMYLOID * 10000/ VOL,
-                            ROI = sprintf("AMY_%03i", LABEL_id))] |>
+                          .(PTID, VISIT, LABEL_name, SIDE,
+                            AMYLOID = AMYLOID / VOL)] |>
+  dcast(... ~ SIDE, value.var = "AMYLOID")
+
+amy_roi.dt  <- dict_roi[amy_roi.dt, on = "LABEL_name",
+                        .(PTID, VISIT,
+                          ROI = sprintf("AMY_%03i", LABEL_id),
+                          AMYLOID = (L + R) / 2)] |>
   dcast(... ~ ROI, value.var = "AMYLOID")
 
 amy_roi.dt  <- amy_roi.dt[triad.dt, on = .(PTID, VISIT)]
@@ -46,8 +54,14 @@ amy_roi.dt  <- amy_roi.dt[complete.cases(amy_roi.dt)]
 
 # Tau
 tau_roi.dt  <- cerebra.dt[!is.na(TAU),
-                          .(PTID, VISIT, TAU = TAU * 10000 / VOL,
-                            ROI = sprintf("TAU_%03i", LABEL_id))] |>
+                          .(PTID, VISIT, LABEL_name, SIDE,
+                            TAU = TAU / VOL)] |>
+  dcast(... ~ SIDE, value.var = "TAU")
+
+tau_roi.dt  <- dict_roi[tau_roi.dt, on = "LABEL_name",
+                        .(PTID, VISIT,
+                          ROI = sprintf("TAU_%03i", LABEL_id),
+                          TAU = (L + R) / 2)] |>
   dcast(... ~ ROI, value.var = "TAU")
 
 tau_roi.dt  <- tau_roi.dt[triad.dt, on = .(PTID, VISIT)]
