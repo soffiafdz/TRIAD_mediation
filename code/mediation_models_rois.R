@@ -50,15 +50,14 @@ rm(fpaths)
 triad.dt[, SEX_n := as.numeric(SEX) - 1]
 
 # Remove youth and other dementias
-#triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
-triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other")]
-triad.dt[, DX := factor(DX, levels = c("CN", "MCI", "AD"))]
+triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
+#triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other")]
 
 # 1 - HVR (average for both sides)
 #triad.dt[, `:=`(HVR_lr = 1 - HVR_l, HVR_rr = 1 - HVR_r)]
 triad.dt[, `:=`(HVR_mean_inv = 1 - (HVR_l + HVR_r) / 2)]
 
-triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC, APOE_n,
+triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC,#APOE_n,
                             HVR_mean_inv, MOCA_score)]
 
 # Merge triad and cerebra data
@@ -66,38 +65,43 @@ triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC, APOE_n,
 dict_roi    <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
 
 # Amyloid
-amy_roi.dt  <- cerebra.dt[!is.na(AMYLOID),
-                          .(PTID, VISIT, AMYLOID,
-                            ROI = sprintf("AMY_%03i", LABEL_id))] |>
-  dcast(... ~ ROI, value.var = "AMYLOID")
+amy.dt      <- rois_amy.dt[!is.na(cluster),
+                           .(LABEL_id = as.numeric(str_extract(id, "\\d{3}")),
+                             CLUSTER  = sprintf("AMY_%i", cluster))
+                           ][cerebra.dt, on = "LABEL_id"
+                           ][!is.na(AMYLOID) & !is.na(CLUSTER),
+                           weighted.mean(AMYLOID, VOL),
+                           .(PTID, VISIT, CLUSTER)] |>
+  dcast(... ~ CLUSTER, value.var = "V1")
 
-amy_roi.dt  <- amy_roi.dt[triad.dt, on = .(PTID, VISIT)]
+amy.dt  <- amy.dt[triad.dt, on = .(PTID, VISIT)]
 
 # Tau
-tau_roi.dt  <- cerebra.dt[!is.na(TAU),
-                          .(PTID, VISIT, TAU,
-                            ROI = sprintf("TAU_%03i", LABEL_id))] |>
-  dcast(... ~ ROI, value.var = "TAU")
+tau.dt      <- rois_tau.dt[!is.na(cluster),
+                           .(LABEL_id = as.numeric(str_extract(id, "\\d{3}")),
+                             CLUSTER  = sprintf("TAU_%i", cluster))
+                           ][cerebra.dt, on = "LABEL_id"
+                           ][!is.na(TAU) & !is.na(CLUSTER),
+                           weighted.mean(TAU, VOL),
+                           .(PTID, VISIT, CLUSTER)] |>
+  dcast(... ~ CLUSTER, value.var = "V1")
 
-triad.dt  <- tau_roi.dt[amy_roi.dt, on = .(PTID, VISIT)]
-triad.dt  <- triad.dt[!is.na(AMY_001) & !is.na(TAU_001)]
-rm(amy_roi.dt, tau_roi.dt)
+triad.dt  <- tau.dt[amy.dt, on = .(PTID, VISIT)]
+triad.dt  <- triad.dt[!is.na(AMY_1) & !is.na(TAU_1) & !is.na(MOCA_score)]
+rm(amy.dt, tau.dt)
 
-## Labels
-labels_cov  <- c(AGE_scan = "Age", SEX_n = "Sex", APOE_n = "APOE4")
-labels_hcv  <- c(HCv_l = "Left", HCv_r = "Right")
-labels_hvr  <- c(HVR = "HC-atrophy",
-                 HVR_lr = "1-HVR (Left)",
-                 HVR_rr = "1-HVR (Right)")
-labels_hvr2 <- c(HVR_mean_inv = "HC-atrophy")
-labels_moca <- c(MOCA_score = "MoCA")
+### Labels
+#labels_cov  <- c(AGE_scan = "Age", SEX_n = "Sex", APOE_n = "APOE4")
+#labels_hcv  <- c(HCv_l = "Left", HCv_r = "Right")
+#labels_hvr  <- c(HVR = "HC-atrophy",
+                 #HVR_lr = "1-HVR (Left)",
+                 #HVR_rr = "1-HVR (Right)")
+#labels_hvr2 <- c(HVR_mean_inv = "HC-atrophy")
+#labels_moca <- c(MOCA_score = "MoCA")
 
 ### Models with latent variables ###
-# Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[decision == "Confirmed", id]
-tau_features  <- rois_tau[decision == "Confirmed", id]
-#amy_features  <- rois_amy[meanImp > 4, id]
-#tau_features  <- rois_tau[meanImp > 4, id]
+amy_features  <- paste("AMY", 1:5, sep = "_")
+tau_features  <- paste("TAU", 1:5, sep = "_")
 
 latent.mod <-
   str_glue("
@@ -134,16 +138,9 @@ latent.mod <-
            propIndirect_MOCA := iTotal / Total_MOCA
            ")
 
-latent_play.mod <-
-  str_glue("
-           # Latent variables
-           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
-           TAU =~ {paste(tau_features, collapse = ' + ')}
-           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
-           ")
 fname <- here("data/rds/mediation_rois_latent.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_latent.fit <- sem(latent_play.mod,
+  model_rois_latent.fit <- sem(latent.mod,
                                data = triad.dt[order(DX)],
                                #group = "DX",
                                estimator = "ML")
@@ -155,11 +152,6 @@ if (!file.exists(fname) | refit_models) {
 rm(fname)
 
 ### Model with all mediators ###
-#amy_features  <- rois_amy[decision == "Confirmed", id]
-#tau_features  <- rois_tau[decision == "Confirmed", id]
-amy_features  <- rois_amy[meanImp > 4, id]
-tau_features  <- rois_tau[meanImp > 4, id]
-
 # Text parsing
 amy_covars    <- paste(amy_features, collapse = " + ")
 tau_covars    <- paste(tau_features, collapse = " + ")
