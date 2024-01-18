@@ -12,7 +12,8 @@ redo_tables <- TRUE
 ## Read/Parse CSV files
 fpaths      <- here("data", c("demographics.csv",
                               "neuropsych_eval.csv",
-                              "pet_biomarkers.csv"))
+                              "pet_biomarkers.csv",
+                              "pet_biomarkers_cerebra.csv"))
 
 if (any(!file.exists(fpaths))) {
   here("code/parse_csv_data.R") |> source()
@@ -20,6 +21,7 @@ if (any(!file.exists(fpaths))) {
   demog.dt    <- fread(fpaths[1])
   neuropsy.dt <- fread(fpaths[2])
   pet.dt      <- fread(fpaths[3])
+  cerebra.dt  <- fread(fpaths[4])
 }
 
 rm(fpaths)
@@ -122,7 +124,10 @@ write_rds(triad.dt, here("data/rds/triad.rds"))
 # TODO: Decide if remove NAs
 # Must have: Imaging
 #triad.dt    <- triad.dt[!is.na(AMYLOID) & !is.na(TAU_braak1) & !is.na(HVR_l)]
-triad.dt    <- triad.dt[!is.na(TAU_braak1) & !is.na(HVR_l)]
+amy_subs.dt <- unique(cerebra.dt[!is.na(AMYLOID),
+                      .(PTID_VISIT = paste(PTID, VISIT, sep = "_"))])
+triad.dt[, PTID_VISIT := paste(PTID, VISIT, sep = "_")]
+triad.dt    <- triad.dt[amy_subs.dt, on = "PTID_VISIT"]
 
 # Must have: Neuropsy
 #triad.dt    <- triad.dt[!is.na(RAVLT_raw) & !is.na(MOCA_score)]
@@ -135,14 +140,14 @@ rm(sessn)
 ## Table1
 fname       <- here("data/derivatives/table1_dx.docx")
 if (!file.exists(fname) | redo_tables) {
-  triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
+  #triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
               #.(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
-  #triad_bl.dt[!is.na(MOCA_score) & DX %in% c("CN", "MCI", "AD"),
+  triad_bl.dt[!is.na(MOCA_score) & !is.na(HVR_l) & DX %in% c("CN", "MCI"),
               .(DX_clean, SEX, AGE_scan, EDUC,
                 MOCA_score, SESS,
                 #RAVLT_intro, RAVLT_raw, RAVLT_rep,
 
-                TAU_braak_stage = TAU_braak_group, AMYLOID,
+                TAU_braak_stage = TAU_braak_group,
                 #AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
                                     #TAU_braak4 + TAU_braak5 + TAU_braak6),
                 #HCv_l, HCv_r, HVR_l, HVR_r)] |>
@@ -157,16 +162,16 @@ if (!file.exists(fname) | redo_tables) {
                              #RAVLT_intro ~ "RAVLT (intro score)",
                              #RAVLT_rep ~ "RAVLT (rep score)",
                              SESS ~ "Number of visits",
-                             TAU_braak_stage ~ "Braak Stage (Tau)",
-                             AMYLOID ~ "Amyloid (PET)"),
+                             TAU_braak_stage ~ "Braak Stage (Tau)"),
+                             #AMYLOID ~ "Amyloid (PET)"),
                              #TAU_sum ~ "Tau (PET)"),
                              #HCv_l ~ "HC vol (left)",
                              #HCv_r ~ "HC vol (right)",
                              #HVR_l ~ "HVR (left)",
                              #HVR_r ~ "HVR (right)"),
                 statistic = all_continuous() ~ "{mean} ({sd})",
-                #missing_text = "Missing") |>
-                missing = "no") |>
+                missing_text = "Missing") |>
+                #missing = "no") |>
     modify_header(label ~ "**Variable**") |>
     #modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Clinical Label**") |>
     #add_n() |>
