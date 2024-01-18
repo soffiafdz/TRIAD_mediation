@@ -94,10 +94,10 @@ labels_moca <- c(MOCA_score = "MoCA")
 
 ### Models with latent variables ###
 # Confirmed important features from Boruta algorithm
-amy_features  <- rois_amy[decision == "Confirmed", id]
-tau_features  <- rois_tau[decision == "Confirmed", id]
-#amy_features  <- rois_amy[meanImp > 4, id]
-#tau_features  <- rois_tau[meanImp > 4, id]
+#amy_features  <- rois_amy[decision == "Confirmed", id]
+#tau_features  <- rois_tau[decision == "Confirmed", id]
+amy_features  <- rois_amy[meanImp > 4, id]
+tau_features  <- rois_tau[meanImp > 4, id]
 
 latent.mod <-
   str_glue("
@@ -134,16 +134,9 @@ latent.mod <-
            propIndirect_MOCA := iTotal / Total_MOCA
            ")
 
-latent_play.mod <-
-  str_glue("
-           # Latent variables
-           AMYLOID =~ {paste(amy_features, collapse = ' + ')}
-           TAU =~ {paste(tau_features, collapse = ' + ')}
-           MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
-           ")
 fname <- here("data/rds/mediation_rois_latent.rds")
 if (!file.exists(fname) | refit_models) {
-  model_rois_latent.fit <- sem(latent_play.mod,
+  model_rois_latent.fit <- sem(latent.mod,
                                data = triad.dt[order(DX)],
                                #group = "DX",
                                estimator = "ML")
