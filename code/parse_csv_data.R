@@ -42,6 +42,15 @@ roi_cols    <- c("FID", "visit", "label_id", "label", "side",
 cerebra.dt  <- dt3[, ..roi_cols]
 setnames(cerebra.dt, roi_cols, c("PTID", "VISIT", "LABEL_id", "LABEL_name",
                                  "SIDE", "VOL", "TAU", "AMYLOID"))
+
+## Normalize SUVR values by Avg L/R cerebellar gray matter
+cerebra.dt  <- cerebra.dt[LABEL_name == "Cerebellum_Gray_Matter",
+                          .(TAU_cgm = mean(TAU), AMY_cgm = mean(AMYLOID)),
+                          .(PTID, VISIT)
+                          ][cerebra.dt, on = .(PTID, VISIT),
+                          .(PTID, VISIT, LABEL_id, LABEL_name, SIDE, VOL,
+                            TAU_norm = TAU / TAU_cgm,
+                            AMYLOID_norm = AMYLOID / AMY_cgm)]
 fwrite(cerebra.dt, here("data/pet_biomarkers_cerebra.csv"))
 rm(roi_cols, dt3)
 

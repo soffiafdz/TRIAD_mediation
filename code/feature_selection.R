@@ -10,7 +10,7 @@ library(cluster)
 
 
 ## Redo algorithm
-reselect_rois   <- FALSE
+reselect_rois   <- TRUE
 recluster       <- TRUE
 
 ## Load data
@@ -42,20 +42,22 @@ triad.dt        <- triad.dt[!is.na(MOCA_score) &
 dict_roi        <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
 
 # Amyloid
-amy.dt          <- cerebra.dt[!is.na(AMYLOID),
+amy.dt          <- cerebra.dt[!is.na(AMYLOID_norm),
                                   .(PTID, VISIT,
                                     ROI = sprintf("AMY_%03i", LABEL_id),
-                                    AMYLOID = AMYLOID / VOL)] |>
+                                    #AMYLOID = log(AMYLOID_norm / VOL))] |>
+                                    AMYLOID = AMYLOID_norm / VOL)] |>
   dcast(... ~ ROI, value.var = "AMYLOID")
 
 amy.dt          <- amy.dt[triad.dt, on = .(PTID, VISIT)]
 amy.dt          <- amy.dt[complete.cases(amy.dt)]
 
 # Tau
-tau.dt          <- cerebra.dt[!is.na(TAU),
+tau.dt          <- cerebra.dt[!is.na(TAU_norm),
                                   .(PTID, VISIT,
                                     ROI = sprintf("TAU_%03i", LABEL_id),
-                                    TAU = TAU / VOL)] |>
+                                    #TAU = log(TAU_norm / VOL))] |>
+                                    TAU = TAU_norm / VOL)] |>
   dcast(... ~ ROI, value.var = "TAU")
 
 tau.dt          <- tau.dt[triad.dt, on = .(PTID, VISIT)]
