@@ -147,13 +147,15 @@ rm(fpath)
 
 # Find selected ROIs that are present on both Amy and Tau lists
 if (reselect_rois) {
-  rois_amy_tau    <-
-    dict_roi[rois_amy.dt[decision == "Confirmed",
-                         .(id = as.numeric(str_extract(id, "\\d{3}")))
-             ][rois_tau.dt[decision == "Confirmed",
-                           .(id = as.numeric(str_extract(id, "\\d{3}")))
-             ], on = "id", nomatch = 0] , on = .(LABEL_id = id)
-             ][order(LABEL_name)]
+  rois_amy_tau_n  <- c(rois_amy.dt[decision == "Confirmed",
+                                   str_extract(id, "\\d{3}")],
+                       rois_tau.dt[decision == "Confirmed",
+                                   str_extract(id, "\\d{3}")]) |>
+  unique() |> as.numeric()
 
-  write_rds(rois_amy_tau, here("data/rds/cerebra_rois_amy_tau_moca.rds"))
+  rois_amy_tau.dt <-
+    dict_roi[LABEL_id %in% rois_amy_tau_n][order(LABEL_name)]
+
+  write_rds(rois_amy_tau.dt, here("data/rds/cerebra_rois_amy_tau_moca.rds"))
+  rm(rois_amy_tau_n)
 }
