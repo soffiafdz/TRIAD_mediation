@@ -124,7 +124,7 @@ write_rds(triad.dt, here("data/rds/triad.rds"))
 # TODO: Decide if remove NAs
 # Must have: Imaging
 #triad.dt    <- triad.dt[!is.na(AMYLOID) & !is.na(TAU_braak1) & !is.na(HVR_l)]
-amy_subs.dt <- unique(cerebra.dt[!is.na(AMYLOID),
+amy_subs.dt <- unique(cerebra.dt[!is.na(AMYLOID_norm),
                       .(PTID_VISIT = paste(PTID, VISIT, sep = "_"))])
 triad.dt[, PTID_VISIT := paste(PTID, VISIT, sep = "_")]
 triad.dt    <- triad.dt[amy_subs.dt, on = "PTID_VISIT"]
@@ -143,10 +143,9 @@ if (!file.exists(fname) | redo_tables) {
   #triad_bl.dt[!is.na(APOE_n) & !is.na(MOCA_score) & DX %in% c("CN", "MCI"),
               #.(DX_clean, SEX, AGE_scan, EDUC, APOE = factor(APOE_n),
   triad_bl.dt[!is.na(MOCA_score) & !is.na(HVR_l) & DX %in% c("CN", "MCI"),
-              .(DX_clean, SEX, AGE_scan, EDUC,
-                MOCA_score, SESS,
+              .(DX_clean = factor(DX_clean, labels = c("NC", "MCI")),
+                SEX, AGE_scan, EDUC, MOCA_score, SESS,
                 #RAVLT_intro, RAVLT_raw, RAVLT_rep,
-
                 TAU_braak_stage = TAU_braak_group,
                 #AMYLOID, TAU_sum = (TAU_braak1 + TAU_braak2 + TAU_braak3 +
                                     #TAU_braak4 + TAU_braak5 + TAU_braak6),
