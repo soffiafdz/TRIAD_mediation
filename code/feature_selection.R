@@ -11,7 +11,7 @@ library(cluster)
 
 ## Redo algorithm
 reselect_rois   <- TRUE
-recluster       <- TRUE
+recluster       <- FALSE
 
 ## Load data
 # baseline data
@@ -147,15 +147,26 @@ rm(fpath)
 
 # Find selected ROIs that are present on both Amy and Tau lists
 if (reselect_rois) {
-  rois_amy_tau_n  <- c(rois_amy.dt[decision == "Confirmed",
+  # In ANY list
+  rois_amy_tau_a  <- c(rois_amy.dt[decision == "Confirmed",
                                    str_extract(id, "\\d{3}")],
                        rois_tau.dt[decision == "Confirmed",
                                    str_extract(id, "\\d{3}")]) |>
   unique() |> as.numeric()
 
+  # In BOTH lists
+  rois_amy_tau_b  <- rois_amy.dt[decision == "Confirmed",
+                                 .(str_extract(id, "\\d{3}"))
+                                 ][rois_tau.dt[decision == "Confirmed",
+                                               .(str_extract(id, "\\d{3}"))],
+                                 on = "V1", nomatch = 0, as.numeric(V1)]
+
   rois_amy_tau.dt <-
-    dict_roi[LABEL_id %in% rois_amy_tau_n][order(LABEL_name)]
+    dict_roi[LABEL_id %in% rois_amy_tau_a][order(LABEL_name)]
+
+  rois_amy_tau.dt[, LIST := "ANY"]
+  rois_amy_tau.dt[LABEL_id %in% rois_amy_tau_b, LIST := "BOTH"]
 
   write_rds(rois_amy_tau.dt, here("data/rds/cerebra_rois_amy_tau_moca.rds"))
-  rm(rois_amy_tau_n)
+  rm(rois_amy_tau_a, rois_amy_tau_b)
 }
