@@ -8,13 +8,14 @@ library(progress)
 library(lavaan)
 library(lavaanPlot)
 library(ggplot2)
-library(semTable)
+library(patchwork)
+#library(semTable)
 
 ## Refit models
-refit_mods  <- TRUE
+refit_mods  <- FALSE
 
 ## Print plots ### Needs to be done outside renv
-print_plots <- FALSE
+print_plots <- TRUE
 
 ## INPUT
 # Load baseline data
@@ -67,6 +68,26 @@ triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC,#APOE_n,
 dict_roi    <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
 
 # Selected features for both Amyloid and Tau
+# Weighted average of all ROIs
+#amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
+amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt[LIST == "BOTH",
+                                                        LABEL_id]
+                          ][!is.na(AMYLOID_norm),
+                          .(AMYLOID = weighted.mean(AMYLOID_norm, VOL)),
+                          .(PTID, VISIT)]
+
+#tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
+tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt[LIST == "BOTH",
+                                                        LABEL_id]
+                          ][!is.na(AMYLOID_norm),
+                          .(TAU = weighted.mean(TAU_norm, VOL)),
+                          .(PTID, VISIT)]
+
+triad_w.dt  <- tau.dt[amy.dt, on = .(PTID, VISIT)
+                      ][triad.dt, on = .(PTID, VISIT)
+                      ][!is.na(MOCA_score) & !is.na(AMYLOID) & !is.na(TAU)]
+
+# ROIs normalized by Volume
 amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
                           ][!is.na(AMYLOID_norm),
                           .(PTID, VISIT, LABEL_id,
@@ -80,6 +101,7 @@ tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
 triad.dt    <- tau.dt[amy.dt, on = .(PTID, VISIT, LABEL_id)
                       ][triad.dt, on = .(PTID, VISIT)
                       ][!is.na(MOCA_score) & !is.na(AMYLOID) & !is.na(TAU)]
+rm(amy.dt, tau.dt)
 
 ## Model definitions
 hvr.mod     <-
@@ -124,6 +146,33 @@ propInd := iTotal / Total
 
 
 ## Fit models
+# General models with weighted average of all selected ROIs
+fnames          <- here("data/rds", sprintf("mediation_%s_w_bs.rds",
+                                            c("hvr", "moca")))
+
+if (any(!file.exists(fnames)) | refit_mods) {
+  mods.lst      <- vector("list", 2)
+  for (i in seq_along(mods.lst)) {
+    mods.lst[[i]]  <-
+      sem(c(hvr.mod, moca.mod)[i],
+          data = triad_w.dt,
+          estimator = "ML",
+          se = "bootstrap",
+          bootstrap = 1000)
+
+    write_rds(mods.lst[[i]], fnames[i])
+  }
+
+  mod_hvr_w.fit         <- mods.lst[[1]]
+  mod_moca_w.fit        <- mods.lst[[2]]
+  rm(mods.lst)
+} else {
+  mod_hvr_w.fit         <- read_rds(fnames[1])
+  mod_moca_w.fit        <- read_rds(fnames[2])
+}
+rm(fnames)
+
+# Individual models by ROI
 fnames          <- here("data/rds",
                         sprintf("mediation_%s_bs.rds", c("hvr", "moca")))
 
@@ -209,30 +258,35 @@ mod_moca.est    <- rois_names |>
 mod_moca.est    <- mod_moca.est[op != "~~"]
 
 ## Plot standardized estimates
+# Use only ROIs in BOTH AMY and TAU important lists
+
+
 # HVR model
-#mod_hvr.est[lhs == "dAMY", label := "Direct: Amyloid"]
-#mod_hvr.est[lhs == "iTAU", label := "Indirect: Tau"]
+DT <- mod_hvr.est[lhs %in% c("dAMY", "iTAU") &
+                  ROI %in% rois_amy_tau.dt[LIST == "BOTH",
+                                           paste(LABEL_name, SIDE,
+                                                 sep = "_")]]
+DT[, label := factor(label, levels = c("dAMY", "iTAU"),
+                     labels = c("Direct: Amyloid", "Indirect: Tau"))]
 
-DT <- mod_hvr.est[lhs %in% c("dAMY", "iTAU", "Total")]
-DT[, label := factor(label,
-                     levels = c("Total", "dAMY", "iTAU"),
-                     labels = c("Total", "Direct: Amyloid", "Indirect: Tau"))]
+ordered_rois  <- DT[lhs == "iTAU"][order(est.std), ROI]
 
-p <- DT[order()] |>
+p1 <- DT |>
   ggplot(aes(x = ROI, y = est.std)) +
   theme_classic(base_size = 12) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
   geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
                 width = 0.2, position = position_dodge(0.5)) +
   geom_point(shape = 21, fill = "white", size = 1.5) +
+  scale_x_discrete(limits = ordered_rois) +
   labs(x = "CerebrA ROIs", y = "Standardized estimates",
        title = "Direct & indirect effects on HC atrophy",
-       caption = "Bootstrap CIs: 10000 resamples") +
+       caption = "Bootstrap CIs: 1000 resamples") +
   coord_flip() +
   facet_wrap(vars(label))
 
-here("plots/mediation_hvr_std-estimates.png") |>
-  ggsave(p, width = 7, height = 10, units = "in", dpi = 600)
+#here("plots/mediation_hvr_std-estimates.png") |>
+  #ggsave(p, width = 6, height = 5, units = "in", dpi = 600)
 
 # MoCA model
 #mod_moca.est[lhs == "dAMY", label := "Direct: Amyloid"]
@@ -245,47 +299,46 @@ here("plots/mediation_hvr_std-estimates.png") |>
                      #labels = c("Total", "Direct: Amyloid",
                                 #"Indirect: Tau", "Indirect: HVR"))]
 
-DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU", "Total")]
-DT[, label := factor(label,
-                     levels = c("Total", "dAMY", "iTAU"),
-                     labels = c("Total", "Direct: Amyloid", "Indirect: Tau"))]
+DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU") &
+                  ROI %in% rois_amy_tau.dt[LIST == "BOTH",
+                                           paste(LABEL_name, SIDE,
+                                                 sep = "_")]]
+DT[, label := factor(label, levels = c("dAMY", "iTAU"),
+                     labels = c("Direct: Amyloid", "Indirect: Tau"))]
 
-p <- DT |>
+ordered_rois  <- DT[lhs == "iTAU"][order(-est.std), ROI]
+
+p2 <- DT |>
   ggplot(aes(x = ROI, y = est.std)) +
   theme_classic(base_size = 12) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
   geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
                 width = 0.2, position = position_dodge(0.5)) +
   geom_point(shape = 21, fill = "white", size = 1.5) +
+  scale_x_discrete(limits = ordered_rois) +
   labs(x = "CerebrA ROIs", y = "Standardized estimates",
        title = "Direct & indirect effects on MoCA scores",
-       caption = "Bootstrap CIs: 10000 resamples") +
+       caption = "Bootstrap CIs: 1000 resamples") +
   coord_flip() +
   facet_wrap(vars(label))
 
-here("plots/mediation_moca_std-estimates2.png") |>
-  ggsave(p, width = 7, height = 10, units = "in", dpi = 600)
+pp <- p1 + p2
+here("plots/mediation_std-estimates.png") |>
+  ggsave(pp, width = 12, height = 5, units = "in", dpi = 600)
 
 
-## RMSEA = 0; CFI & TLI = 1 #
-#fname <- here("data/rds/mediation_selected_moca.rds")
-#if (!file.exists(fname) | refit_mods) {
-  #mod_sel_moca.fit  <- sem(moca.mod, data = triad_s.dt, #group = "DX",
-                                 #estimator = "ML")
-                     ##se = "bootstrap", bootstrap = 10000)
-  #write_rds(mod_sel_moca.fit, fname)
-#} else {
-  #mod_sel_moca.fit  <- read_rds(fname)
-#}
-#rm(fname)
+# Path plot of selected ROIs model
+fname       <- here("plots/mediation_moca_path.pdf")
+if (!file.exists(fname) | print_plots) {
+labels      <- c(AGE_scan = "Age", SEX_n = "Sex", EDUC = "Education",
+                 HVR_mean_inv = "HC-atrophy", MOCA_score = "MoCA")
 
-
-#### Labels
-##labels_cov  <- c(AGE_scan = "Age", SEX_n = "Sex", APOE_n = "APOE4")
-##labels_hcv  <- c(HCv_l = "Left", HCv_r = "Right")
-##labels_hvr  <- c(HVR = "HC-atrophy",
-                 ##HVR_lr = "1-HVR (Left)",
-                 ##HVR_rr = "1-HVR (Right)")
-##labels_hvr2 <- c(HVR_mean_inv = "HC-atrophy")
-##labels_moca <- c(MOCA_score = "MoCA")
-
+  p_plot    <- lavaanPlot2(model = mod_moca_w.fit, labels = labels,
+                            graph_options = list(rankdir = "LR"),
+                            node_options = list(shape = "box"),
+                            edge_options = list(color = "grey"),
+                            coef_labels = T, stand = T,
+                            stars = "regress")
+  embed_plot_pdf(p_plot, fname)
+}
+rm(fname)
