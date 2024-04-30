@@ -13,12 +13,11 @@ library(patchwork)
 
 
 ## Redo algorithm
-reselect_rois   <- TRUE
-#recluster       <- FALSE
+reselect_rois   <- FALSE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
-                        c("pet_cerebra.rds", #"covars.rds",
+                        c("pet_cerebra.rds", "covars.rds",
                           "raket_eds.rds", "incl_subs.dt"))
 
 ## Preprocess PET data
@@ -39,24 +38,26 @@ tau.dt          <- pet.dt[, .(PTID, VISIT,
   dcast(... ~ ROI, value.var = "SUVR_norm_log")
 
 ## Covariates
-if (!file.exists(fpaths[3]))   here("code/demographics.R") |> source()
-#if (any(!file.exists(fpaths[2:3])))  here("code/parse_csv_data.R") |> source()
+if (!file.exists(fpaths[4]))   here("code/demographics.R") |> source()
+if (any(!file.exists(fpaths[2:3])))  here("code/parse_csv_data.R") |> source()
 
-#covars.dt   <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
-raket.dt        <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
-all_subs.dt     <- read_rds(fpaths[3]) |> setkey(PTID, VISIT)
+covars.dt   <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
+raket.dt        <- read_rds(fpaths[3]) |> setkey(PTID, VISIT)
+all_subs.dt     <- read_rds(fpaths[4]) |> setkey(PTID, VISIT)
 
-amy.dt          <- raket.dt[, .(PTID, VISIT, RAKET_edt, RAKET_group)
-                            ][amy.dt][all_subs.dt]
+amy.dt          <- covars.dt[, .(PTID, VISIT, MMSE = as.numeric(MMSE))
+                             ][raket.dt[, .(PTID, VISIT, RAKET_group)]
+                             ][amy.dt][all_subs.dt][!is.na(MMSE)]
 
-tau.dt          <- raket.dt[, .(PTID, VISIT, RAKET_edt, RAKET_group)
-                            ][tau.dt][all_subs.dt]
+tau.dt          <- covars.dt[, .(PTID, VISIT, MMSE = as.numeric(MMSE))
+                             ][raket.dt[, .(PTID, VISIT, RAKET_group)]
+                             ][tau.dt][all_subs.dt][!is.na(MMSE)]
 
-#rm(fpaths, covars.dt, raket.dt, pet.dt, all_subs.dt)
+rm(fpaths, covars.dt, raket.dt, pet.dt, all_subs.dt)
 
 ## Feature Selection and Clustering
 # Amyloid
-fpath           <- here("data/rds/cerebra_rois_raket_amy.rds")
+fpath           <- here("data/rds/cerebra_rois_mmse_amy.rds")
 if (!file.exists(fpath)) reselect_rois <- TRUE
 
 if (reselect_rois) {
@@ -72,7 +73,7 @@ if (reselect_rois) {
   for (i in seq_along(raket_grps)) {
     rois_amy.lst[[i]]   <-
       Boruta(amy.dt[RAKET_group == raket_grps[i], ..cerebra_rois],
-             amy.dt[RAKET_group == raket_grps[i], RAKET_edt]) |>
+             amy.dt[RAKET_group == raket_grps[i], MMSE]) |>
       #TentativeRoughFix() |>
       #getSelectedAttributes()
       attStats() |>
@@ -116,7 +117,7 @@ if (reselect_rois) {
 #rm(fpath)
 
 ## Tau
-fpath           <- here("data/rds/cerebra_rois_raket_tau.rds")
+fpath           <- here("data/rds/cerebra_rois_mmse_tau.rds")
 if (!file.exists(fpath)) reselect_rois <- TRUE
 
 if (reselect_rois) {
@@ -132,7 +133,7 @@ if (reselect_rois) {
   for (i in seq_along(raket_grps)) {
     rois_tau.lst[[i]]   <-
       Boruta(tau.dt[RAKET_group == raket_grps[i], ..cerebra_rois],
-             tau.dt[RAKET_group == raket_grps[i], RAKET_edt]) |>
+             tau.dt[RAKET_group == raket_grps[i], MMSE]) |>
       #TentativeRoughFix() |>
       #getSelectedAttributes()
       attStats() |>
@@ -178,12 +179,12 @@ p2 <-
     scale_shape_manual(values = 24:25) +
     labs(x = "Cerebra ROIs", y = "Importance", shape = "Decision",
          title = "Selected ROIs: Tau",
-         caption = "Features selected to predict RAKET disease offset using Boruta") +
+         caption = "Features selected to predict MMSE using Boruta") +
     coord_flip() +
     facet_col(vars(group), scales = "free_y", space = "free")
 
 pp <- p1 + p2
-here("plots/boruta-rois.png") |>
+here("plots/boruta-rois_mmse.png") |>
   ggsave(pp, width = 11, height = 11, units = "in", dpi = 600)
 
 ## Find selected ROIs that are present on both Amy and Tau lists
@@ -200,6 +201,6 @@ if (reselect_rois) {
                              fill = TRUE)
 
   rois.dt[is.na(suvr), suvr := "both"]
-  write_rds(rois.dt, here("data/rds/cerebra_rois_raket.rds"))
+  write_rds(rois.dt, here("data/rds/cerebra_rois_mmse.rds"))
   rm(rois_both.dt)
 }
