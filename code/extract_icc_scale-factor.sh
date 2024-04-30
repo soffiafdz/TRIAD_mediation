@@ -6,21 +6,22 @@
 set -xu
 
 HERE=/ipl/ipl27/sfernandez/hvr_pet
-LIST=${HERE}/triad.lst
+DATA=${HERE}/data/data_2024
+LIST=${HERE}/triad_2024.lst
 VOLUMES=${HERE}/data/derivatives/icc_scale.csv
 
-echo "PTID,SCANDATE,ICC,SCALEFACTOR" > $VOLUMES
+echo "PTID,VISIT,ICC,SCALEFACTOR" > $VOLUMES
 
 mapfile -t IDS < $LIST
 
 for id in ${IDS[@]}
 do
 	ptid=$(printf $id | cut -d, -f1)
-	date=$(printf $id | cut -d, -f2)
+	session=$(printf $id | cut -d, -f2)
 
-	stx=${HERE}/data/t1/stx_${ptid}_${date}_t1_n.mnc
-	mask=${HERE}/data/masks/stx_${ptid}_${date}_dmask.mnc
-	xfm=${HERE}/data/xfms/stx_${ptid}_${date}_t1_lin.xfm
+	stx=${DATA}/${ptid}/${session}/stx_${ptid}_${session}_t1_n.mnc
+	mask=${DATA}/${ptid}/${session}/stx_${ptid}_${session}_dmask.mnc
+	xfm=${DATA}/${ptid}/${session}/stx_${ptid}_${session}_t1_lin.xfm
 
 	# SCALEFACTOR from STX2 xfm
 	scale=$(xfm2param $xfm |
@@ -31,5 +32,5 @@ do
 		awk -v scale=$scale '{printf "%.10f", $NF / scale}')
 
 	printf "%s,%s,%f,%f\n" \
-		$ptid $date $icc $scale >> $VOLUMES
+		$ptid $session $icc $scale >> $VOLUMES
 done < $LIST

@@ -2,67 +2,110 @@
 
 library(here)
 library(data.table)
+library(readr)
+library(stringr)
+library(lubridate)
 
 ## Read files
 # File names
-fname1  <- here("data/MCSA_demo_scan_transfer_ANTS_processing_new_20220206_anonym.csv")
-fname2  <- here("data/from_cecile_data-2023-02-10T16_35_19.435Z.csv")
-fname3  <- here("data/CEREBRA_volumetric_20231208.csv")
+fname1  <- here("data/TRIAD_data2024.csv")
+fname2  <- here("data/TRIAD_Raket_all.csv")
+fname3  <- here("data/derivatives/wmh_vols.csv")
 
 # Parsing
-dt1     <- fread(fname1)
-dt2     <- fread(fname2)
-dt3     <- fread(fname3)
+DT1     <- fread(fname1)
+DT2     <- fread(fname2)
+DT3     <- fread(fname3)
 rm(fname1, fname2, fname3)
 
 ## DTs
 # Demographics
-demog_cols  <- c("FID", "visit", "DX_cat",
-                 "dob", "sex", "edu", "apoe_add", "WMH_wm", "MMSE")
-demog.dt    <- dt1[, ..demog_cols]
-setnames(demog.dt, demog_cols,
-         c("PTID", "VISIT", "DX", "DOB", "SEX", "EDUC", "APOE_n", "WMH",
-           "MMSE"))
-fwrite(demog.dt, here("data/demographics.csv"))
-rm(demog_cols)
+cols    <- c("id", "visit", "dx", "dob", "gender", "education", "apoe",
+             "cdr", "mmse",
+             "date_mri", "mri_qc", "date_mk", "mk_qc", "date_nav", "nav_qc")
+DT1     <- DT1[, ..cols]
 
-# PET biomarkers (Global/Braak Stage)
-pet_cols    <- c("FID", "visit", "NeoctxAZD_SUVR", # Amyloid: AZD4694
-                 # Tau BraakStages: MK-6240 ligand
-                 paste0(paste0("Braak", c(1:6, "Stage")), "_masked"))
-pet.dt      <- dt1[, ..pet_cols]
-setnames(pet.dt, pet_cols, c("PTID", "VISIT", "AMYLOID",
-                             paste0("TAU_braak", 1:6), "TAU_braak_stage"))
-fwrite(pet.dt, here("data/pet_biomarkers.csv"))
-rm(pet_cols, dt1)
+setnames(DT1, cols,
+         c("PTID", "VISIT", "DX", "DOB", "SEX", "EDUC", "APOE",
+           "CDR", "MMSE",
+           "DATE_mri", "QC_mri", "DATE_mk", "QC_mk", "DATE_nav", "QC_nav"))
 
-# Amyloid & Tau by ROI (CEREBRA)
-roi_cols    <- c("FID", "visit", "label_id", "label", "side",
-                 "vol", "mk_pet", "nav_pet")
-cerebra.dt  <- dt3[, ..roi_cols]
-setnames(cerebra.dt, roi_cols, c("PTID", "VISIT", "LABEL_id", "LABEL_name",
-                                 "SIDE", "VOL", "TAU", "AMYLOID"))
+rm(cols)
 
-## Normalize SUVR values by Avg L/R cerebellar gray matter
-cerebra.dt  <- cerebra.dt[LABEL_name == "Cerebellum_Gray_Matter",
-                          .(TAU_cgm = mean(TAU), AMY_cgm = mean(AMYLOID)),
-                          .(PTID, VISIT)
-                          ][cerebra.dt, on = .(PTID, VISIT),
-                          .(PTID, VISIT, LABEL_id, LABEL_name, SIDE, VOL,
-                            TAU_norm = TAU / TAU_cgm,
-                            AMYLOID_norm = AMYLOID / AMY_cgm)]
-fwrite(cerebra.dt, here("data/pet_biomarkers_cerebra.csv"))
-rm(roi_cols, dt3)
+excl.dt  <- DT1[DT1[, .N, .(PTID, DATE_mri)][N != 1],
+               on = .(PTID, DATE_mri)
+               ][DATE_mk == "" | DATE_nav == "",
+               .(PTID, VISIT)]
 
-# Neuropsych
-cog_cols    <- c("FID", "FVIS", "MOCA_score",
-                 paste0("Neuropsych_RAVLT_", c("Date_taken",
-                                               paste0("trial_B1_",
-                                                      c("intrusion", "raw",
-                                                        "repetition"),
-                                                      "_score"))))
-neuropsy.dt <- dt2[, ..cog_cols]
-setnames(neuropsy.dt, cog_cols, c("PTID", "VISIT", "MOCA_score", "EVALDATE",
-                                  paste0("RAVLT_", c("intro", "raw", "rep"))))
-fwrite(neuropsy.dt, here("data/neuropsych_eval.csv"))
-rm(cog_cols, dt2)
+DT1     <- DT1[!excl.dt, on = .(PTID, VISIT)]
+
+## Keep only certain DX categories
+dx_keep <- c("CN", "CN(Y)", "CN (Y)",
+             "SCI", "SCI (mixed vascular component)",
+             "MCI", "MCI not due to AD", "early MCI", "MCI (mixed)", "aMCI",
+             "AD", "early AD", "early onset AD",
+             "mild AD", "Mild AD",
+             "EOAD", "Possible EOAD",
+             "AD (with an atypical distribution of Amyloid-beta)")
+
+#DT1     <- DT1[DX %in% dx_keep]
+
+# Manage dates
+DT1[, `:=`(DOB      = dmy(DOB),
+           DATE_mri = dmy(DATE_mri),
+           DATE_mk  = dmy(DATE_mk),
+           DATE_nav = dmy(DATE_nav))]
+
+# Calculate age (using dob and midpoint between earliest and latest scan)
+DT1[, `:=`(DATE_earliest  = do.call(pmin, .SD),
+           DATE_latest    = do.call(pmax, .SD)),
+    .SDcols = grep("DATE", names(DT1), value = TRUE)]
+
+DT1[, DATE_midpoint := DATE_earliest + (DATE_latest - DATE_earliest) / 2]
+
+DT1[, AGE := as.period(interval(DOB, DATE_midpoint))$year]
+
+# Sex
+DT1[, SEX := factor(SEX, labels = c("Female", "Male"))]
+
+## Remove people younger than 40 (?)
+covars.dt     <- covars.dt[AGE >= 40]
+
+write_rds(DT1, here("data/rds/covars.rds"))
+
+
+# Raket disease offset
+cols    <- c("RID", "visit", "nav_adni_suvr_fullcg_neocortex", "AB", "EDT")
+DT2     <- DT2[, ..cols]
+
+setnames(DT2, cols,
+         c("PTID", "VISIT", "AB_neocortex", "AB_bool", "RAKET_edt"))
+
+rm(cols)
+
+## AB positivity
+## nav_adni_suvr_fullcg_neocortex > 1.55
+# Separate groups by Raket disease offset
+#DT2[RAKET_edt < -1,                    RAKET_group := "<-1"  ]
+#DT2[RAKET_edt >= -1  & RAKET_edt < 0,  RAKET_group := "-1—0" ]
+#DT2[RAKET_edt >= 0   & RAKET_edt < 2,  RAKET_group := "0—2"  ]
+#DT2[RAKET_edt >= 2   & RAKET_edt < 4,  RAKET_group := "2—4"  ]
+#DT2[RAKET_edt >= 4,                    RAKET_group := ">4"   ]
+
+DT2[RAKET_edt <= 0, RAKET_group := 0]
+DT2[RAKET_edt > 0 & RAKET_edt <= 3, RAKET_group := 1]
+DT2[RAKET_edt > 3, RAKET_group := 2]
+
+DT2[, RAKET_group := factor(RAKET_group,
+                            levels = 0:2,
+                            labels = c("Healthy",
+                                       "Early stages",
+                                       "Late stages"))]
+
+write_rds(DT2, here("data/rds/raket_eds.rds"))
+
+# WMH
+setnames(DT3, "SESSION", "VISIT")
+write_rds(DT3, here("data/rds/wmh_vols.rds"))
+
+rm(DT1, DT2, DT3)

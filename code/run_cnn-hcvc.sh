@@ -11,7 +11,7 @@ trap "rm -rf $TMPDIR" 0 1 2 15
 set -ux
 
 BASE_DIR=/ipl/ipl27/sfernandez/hvr_pet
-MRI_DIR=${BASE_DIR}/data/t1
+MRI_DIR=${BASE_DIR}/data/data_2024
 QC_DIR=${BASE_DIR}/plots/qc_cnn
 OUT_DIR=${BASE_DIR}/data/derivatives
 LIB_DIR=${BASE_DIR}/libraries/cnn-hcvc
@@ -148,7 +148,7 @@ function qc_plot() {
 }
 
 # Main
-for in_mri in ${MRI_DIR}/*
+for in_mri in ${MRI_DIR}/*/*/*_t1_n.mnc
 do
 	bname=$(basename $in_mri .mnc)
 
