@@ -13,13 +13,11 @@ library(patchwork)
 
 
 ## Redo algorithm
-reselect_rois   <- TRUE
-#recluster       <- FALSE
+reselect_rois   <- FALSE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
-                        c("pet_cerebra.rds", #"covars.rds",
-                          "raket_eds.rds", "incl_subs.dt"))
+                        c("pet_cerebra.rds", "raket_eds.rds", "incl_subs.dt"))
 
 ## Preprocess PET data
 if (!file.exists(fpaths[1]))   here("code/parse_pet.R") |> source()
@@ -39,10 +37,9 @@ tau.dt          <- pet.dt[, .(PTID, VISIT,
   dcast(... ~ ROI, value.var = "SUVR_norm_log")
 
 ## Covariates
+if (!file.exists(fpaths[2]))   here("code/parse_csv_data.R") |> source()
 if (!file.exists(fpaths[3]))   here("code/demographics.R") |> source()
-#if (any(!file.exists(fpaths[2:3])))  here("code/parse_csv_data.R") |> source()
 
-#covars.dt   <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
 raket.dt        <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
 all_subs.dt     <- read_rds(fpaths[3]) |> setkey(PTID, VISIT)
 
@@ -52,7 +49,7 @@ amy.dt          <- raket.dt[, .(PTID, VISIT, RAKET_edt, RAKET_group)
 tau.dt          <- raket.dt[, .(PTID, VISIT, RAKET_edt, RAKET_group)
                             ][tau.dt][all_subs.dt]
 
-#rm(fpaths, covars.dt, raket.dt, pet.dt, all_subs.dt)
+rm(fpaths, raket.dt, pet.dt, all_subs.dt)
 
 ## Feature Selection and Clustering
 # Amyloid
@@ -93,27 +90,6 @@ if (reselect_rois) {
 } else {
   rois_amy.dt   <- read_rds(fpath)
 }
-
-##if (FALSE) {
-##if (reselect_rois | recluster) {
-  ## Clustering K-means
-  #K             <- 5
-
-  #cerebra_rois  <- str_subset(names(amy.dt), "AMY")
-  #amy_scaled.dt <- amy.dt[, lapply(.SD, scale), .SDcols = cerebra_rois]
-  #names(amy_scaled.dt)  <- str_remove(names(amy_scaled.dt), ".{3}$")
-
-  ## Only selected ROIs from Boruta
-  #rois_amy      <- rois_amy.dt[decision == "Confirmed", id]
-  #amy_rois_scl.dt       <- amy_scaled.dt[, ..rois_amy]
-
-  #set.seed(42)
-  #clusters_amy  <- kmeans(transpose(amy_rois_scl.dt), centers = K)
-  #rois_amy.dt[decision == "Confirmed", cluster := clusters_amy$cluster]
-#}
-
-#if (reselect_rois | recluster) write_rds(rois_amy.dt, fpath)
-#rm(fpath)
 
 ## Tau
 fpath           <- here("data/rds/cerebra_rois_raket_tau.rds")
@@ -183,7 +159,7 @@ p2 <-
     facet_col(vars(group), scales = "free_y", space = "free")
 
 pp <- p1 + p2
-here("plots/boruta-rois.png") |>
+here("plots/boruta-rois_raket.png") |>
   ggsave(pp, width = 11, height = 11, units = "in", dpi = 600)
 
 ## Find selected ROIs that are present on both Amy and Tau lists
