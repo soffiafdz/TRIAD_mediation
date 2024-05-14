@@ -17,7 +17,7 @@ reselect_rois   <- FALSE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
-                        c("pet_cerebra.rds", "raket_eds.rds", "incl_subs.dt"))
+                        c("pet_cerebra.rds", "raket_eds.rds", "incl_subs.rds"))
 
 ## Preprocess PET data
 if (!file.exists(fpaths[1]))   here("code/parse_pet.R") |> source()
