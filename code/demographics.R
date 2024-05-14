@@ -53,7 +53,7 @@ mri_subs.dt   <- wmh_subs.dt[vols_subs.dt, nomatch = 0]
 imag_subs.dt  <- wmh_subs.dt[pet_subs.dt, nomatch = 0]
 
 all_subs.dt   <- imag_subs.dt[raket_subs.dt, nomatch = 0]
-write_rds(all_subs.dt, here("data/rds/included_subs.rds"))
+write_rds(all_subs.dt, here("data/rds/incl_subs.rds"))
 
 # Clean APOE4 data
 covars.dt[APOE == "", APOE := NA]
