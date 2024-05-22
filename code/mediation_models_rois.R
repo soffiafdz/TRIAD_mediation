@@ -18,327 +18,561 @@ refit_mods  <- FALSE
 print_plots <- TRUE
 
 ## INPUT
-# Load baseline data
-fpath       <- here("data/rds/triad.rds")
-if (file.exists(fpath)) {
-  triad.dt  <- read_rds(fpath)
-} else {
-  here("code/demographics.R") |> source()
-}
-rm(fpath)
+fpaths      <- here("data/rds", c("covars.rds",
+                                  "raket_eds.rds",
+                                  "wmh_vols.rds",
+                                  "hcv_hvr_adj-old.rds",
+                                  "pet_cerebra.rds",
+                                  "incl_subs.rds",
+                                  "cerebra_rois_raket.rds"))
 
-# Load Cerebra data
-# Biomarkers
-fpath       <- here("data/pet_biomarkers_cerebra.csv")
-if (file.exists(fpath)) {
-  cerebra.dt      <- fread(fpath)
-} else {
-  here("code/parse_csv_data.R") |> source()
-}
+if (!file.exists(fpaths[7]))    here("code/feature_selection.R")  |> source()
+if (!file.exists(fpaths[6]))    here("code/demographics.R")       |> source()
+if (!file.exists(fpaths[5]))    here("code/parse_pet.R")          |> source()
+if (!file.exists(fpaths[4]))    here("code/calc_hvr.R")           |> source()
+if (any(!file.exists(fpaths)))  here("code/parse_csv_data.R")     |> source()
 
-# ROIs
-fpaths      <- here("data/rds",
-                    sprintf("cerebra_rois_%s_moca.rds",
-                            c("amy", "tau", "amy_tau")))
-if (any(!file.exists(fpaths))) {
-  here("code/feature_selection.R") |> source()
-} else {
-  rois_amy.dt     <- read_rds(fpaths[1])
-  rois_tau.dt     <- read_rds(fpaths[2])
-  rois_amy_tau.dt <- read_rds(fpaths[3])
-}
+covars.dt   <- read_rds(fpaths[1]) |> setkey(PTID, VISIT)
+raket.dt    <- read_rds(fpaths[2]) |> setkey(PTID, VISIT)
+wmh.dt      <- read_rds(fpaths[3]) |> setkey(PTID, VISIT)
+vols.dt     <- read_rds(fpaths[4]) |> setkey(PTID, VISIT)
+pet.dt      <- read_rds(fpaths[5]) |> setkey(PTID, VISIT)
+all_subs.dt <- read_rds(fpaths[6]) |> setkey(PTID, VISIT)
+rois.dt     <- read_rds(fpaths[7])
+
 rm(fpaths)
 
 ## Data cleaning
+DT <-
+  covars.dt[, .(PTID, VISIT, AGE, SEX, EDUC, MMSE)
+            ][raket.dt[AB_bool == TRUE, .(PTID, VISIT, RAKET_group)]
+            ][wmh.dt
+            ][vols.dt[, .(PTID, VISIT,
+                          HCv_mean      = (HCv_l + HCv_r) / 2,
+                          HVR_mean_inv  = 1 - (HVR_l + HVR_r) / 2)]
+            ][all_subs.dt]
+
 # Convert Sex to dummy variable
-triad.dt[, SEX_n := as.numeric(SEX) - 1]
+DT[, SEX_n := as.numeric(SEX) - 1]
 
-# Remove youth and dementias
-triad.dt    <- triad.dt[!DX_clean %in% c("Young", "Other", "AD")]
+# rename
+setnames(DT, c("HCv_mean", "HVR_mean_inv"), c("HCv", "HVR"))
 
-# 1 - HVR (average for both sides)
-#triad.dt[, `:=`(HVR_lr = 1 - HVR_l, HVR_rr = 1 - HVR_r)]
-triad.dt[, `:=`(HVR_mean_inv = 1 - (HVR_l + HVR_r) / 2)]
+# Calculate weighted mean of different networks
+rois.dt     <- rois.dt[, .(ids = list(id)),
+                       .(suvr, group = factor(group, labels = 0:2))]
 
-triad.dt    <- triad.dt[, .(PTID, VISIT, DX, SEX_n, AGE_scan, EDUC,#APOE_n,
-                            HVR_mean_inv, MOCA_score)]
+networks    <- split(rois.dt$ids, list(rois.dt$suvr, rois.dt$group)) |>
+                lapply(unlist)
 
-# Merge triad and cerebra data
-# Cerebra dictionary
-dict_roi    <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
+pet_nets.dt <- unique(pet.dt[, .(PTID, VISIT)])
 
-# Selected features for both Amyloid and Tau
-# Weighted average of all ROIs
-#amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
-amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt[LIST == "BOTH",
-                                                        LABEL_id]
-                          ][!is.na(AMYLOID_norm),
-                          .(AMYLOID = weighted.mean(AMYLOID_norm, VOL)),
-                          .(PTID, VISIT)]
-
-#tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
-tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt[LIST == "BOTH",
-                                                        LABEL_id]
-                          ][!is.na(AMYLOID_norm),
-                          .(TAU = weighted.mean(TAU_norm, VOL)),
-                          .(PTID, VISIT)]
-
-triad_w.dt  <- tau.dt[amy.dt, on = .(PTID, VISIT)
-                      ][triad.dt, on = .(PTID, VISIT)
-                      ][!is.na(MOCA_score) & !is.na(AMYLOID) & !is.na(TAU)]
-
-# ROIs normalized by Volume
-amy.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
-                          ][!is.na(AMYLOID_norm),
-                          .(PTID, VISIT, LABEL_id,
-                            AMYLOID = AMYLOID_norm / VOL * 1000)]
-
-tau.dt      <- cerebra.dt[LABEL_id %in% rois_amy_tau.dt$LABEL_id
-                          ][!is.na(AMYLOID_norm),
-                          .(PTID, VISIT, LABEL_id,
-                            TAU = TAU_norm / VOL * 1000)]
-
-triad.dt    <- tau.dt[amy.dt, on = .(PTID, VISIT, LABEL_id)
-                      ][triad.dt, on = .(PTID, VISIT)
-                      ][!is.na(MOCA_score) & !is.na(AMYLOID) & !is.na(TAU)]
-rm(amy.dt, tau.dt)
+for (i in rev(seq_along(networks))) {
+  net.dt    <- pet.dt[LABEL_id %in% networks[[i]],
+                      fifelse(startsWith(names(networks[i]), "amy"),
+                              weighted.mean(SUVR_nav, VOLUME_nav),
+                              weighted.mean(SUVR_mk, VOLUME_mk)),
+                      .(PTID, VISIT)]
+  setnames(net.dt, "V1", names(networks[i]))
+  DT        <- net.dt[DT]
+  rm(net.dt)
+}
 
 ## Model definitions
-hvr.mod     <-
-  str_glue("
+nets.mods   <-
+  list(str_glue("
 # Regressions
-AMYLOID ~ SEX_n + AGE_scan
-TAU ~ a * AMYLOID + SEX_n + AGE_scan
-HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
-# HVR mediation
-# Direct effect
-dAMY  := b
-# Indirect effect
-iTAU  := a * c
-# Total effect
-Total := dAMY + iTAU
-# Proportion analysis
-propAMY := dAMY / Total
-propTAU := iTAU / Total
-")
+amy.0 ~ SEX_n + AGE
+tau.0 ~ a * amy.0 + SEX_n + AGE
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+tau.0 ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
+tau.1 ~ b0 * amy.0 + b1 * amy.1 + SEX_n + AGE
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+amy.2 ~ SEX_n + AGE
+tau.0 ~ a0 * amy.0 + a1 * amy.1 + a2 * amy.2 + SEX_n + AGE
+tau.1 ~ b0 * amy.0 + b1 * amy.1 + b2 * amy.2 + SEX_n + AGE
+tau.2 ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
+"))
 
-moca.mod    <-
-  str_glue("
+hvr.mods    <-
+  list(str_glue("
 # Regressions
-AMYLOID ~ SEX_n + AGE_scan
-TAU ~ a * AMYLOID + SEX_n + AGE_scan
-HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan
-MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + EDUC
+amy.0 ~ SEX_n + AGE
+tau.0 ~ a * amy.0 + SEX_n + AGE
+WMH   ~ b * amy.0 + SEX_n + AGE
+HVR   ~ c * amy.0 + d * tau.0 + e * WMH + SEX_n + AGE
+MMSE  ~ f * amy.0 + g * tau.0 + h * WMH + i * HVR + SEX_n + AGE
+# Mediation
 # Direct effect
-dAMY := d
+dAmy := c
 # Indirect effects
-iTAU := a * e
-iHVR := (b + (a * c)) * f
-# Total effects
-iTotal    := iTAU + iHVR
-Total := iTotal + dAMY
-# Proportion analysis
-propAMY := dAMY / Total
-propTAU := iTAU / Total
-propHVR := iHVR / Total
-propInd := iTotal / Total
-")
+iTau  := a * d
+iWMH  := b * e
+# Total effect
+Total := dAmy + iTau + iWMH
+# Proportions
+pAmy  := dAmy / Total
+pTau  := iTau / Total
+pWMH  := iWMH / Total
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+tau.0 ~ SEX_n + AGE
+tau.1 ~ SEX_n + AGE
+WMH   ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
+HVR   ~ b0 * amy.0 + b1 * amy.1 + c0 * tau.0 + c1 * tau.1
+  + d * WMH + SEX_n + AGE
+MMSE  ~ e0 * amy.0 + e1 * amy.1 + f0 * tau.0 + f1 * tau.1
+  + g * WMH + h * HVR + SEX_n + AGE
+# Mediation
+# Direct effects
+dAmy0 := b0
+dAmy1 := b1
+dTau0 := c0
+dTau1 := c1
+# Indirect effects
+iWMH  := (a0 + a1) * d
+# Total effect
+Total := dAmy0 + dAmy1 + dTau0 + dTau1 + iWMH
+# Proportions
+pAmy0 := dAmy0 / Total
+pAmy1 := dAmy1 / Total
+pTau0 := dTau0 / Total
+pTau1 := dTau1 / Total
+pWMH  := iWMH / Total
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+amy.2 ~ SEX_n + AGE
+tau.0 ~ SEX_n + AGE
+tau.1 ~ a0 * amy.0 + a2 * amy.2 + SEX_n + AGE
+tau.2 ~ b * amy.2 + SEX_n + AGE
+WMH   ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
+HVR   ~ d0 * amy.0 + d1 * amy.1 + d2 * amy.2
+  + e0 * tau.0 + e1 * tau.1 + e2 * tau.2
+  + f * WMH + SEX_n + AGE
+MMSE  ~ g0 * amy.0 + g1 * amy.1 + g2 * amy.2
+  + h0 * tau.0 + h1 * tau.1 + h2 * tau.2
+  + i * WMH + j * HVR + SEX_n + AGE
+# Mediation
+# Direct effect
+dAmy0 := d0
+dAmy1 := d1
+dAmy2 := d2
+dTau0 := e0
+# Indirect effects
+iTau1 := (a0 + a2) * e1
+iTau2 := a2 * e2
+iWMH  := (c0 + c1 + c2) * f
+# Total effect
+Total := dAmy0 + dAmy2 + dAmy2 + dTau0 + iTau1 + iTau2 + iWMH
+# Proportions
+pAmy0 := dAmy0 / Total
+pAmy1 := dAmy1 / Total
+pAmy2 := dAmy2 / Total
+pTau0 := dTau0 / Total
+pTau1 := iTau1 / Total
+pTau2 := iTau2 / Total
+pWMH  := iWMH / Total
+"))
 
+hcv.mods    <-
+  list(str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+tau.0 ~ a * amy.0 + SEX_n + AGE
+WMH   ~ b * amy.0 + SEX_n + AGE
+HCv   ~ c * amy.0 + d * tau.0 + e * WMH + SEX_n + AGE
+MMSE  ~ f * amy.0 + g * tau.0 + h * WMH + i * HCv + SEX_n + AGE
+# Mediation
+# Direct effect
+dAmy := c
+# Indirect effects
+iTau  := a * d
+iWMH  := b * e
+# Total effect
+Total := dAmy + iTau + iWMH
+# Proportions
+pAmy  := dAmy / Total
+pTau  := iTau / Total
+pWMH  := iWMH / Total
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+tau.0 ~ SEX_n + AGE
+tau.1 ~ SEX_n + AGE
+WMH   ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
+HCv   ~ b0 * amy.0 + b1 * amy.1 + c0 * tau.0 + c1 * tau.1
+  + d * WMH + SEX_n + AGE
+MMSE  ~ e0 * amy.0 + e1 * amy.1 + f0 * tau.0 + f1 * tau.1
+  + g * WMH + h * HCv + SEX_n + AGE
+# Mediation
+# Direct effects
+dAmy0 := b0
+dAmy1 := b1
+dTau0 := c0
+dTau1 := c1
+# Indirect effects
+iWMH  := (a0 + a1) * d
+# Total effect
+Total := dAmy0 + dAmy1 + dTau0 + dTau1 + iWMH
+# Proportions
+pAmy0 := dAmy0 / Total
+pAmy1 := dAmy1 / Total
+pTau0 := dTau0 / Total
+pTau1 := dTau1 / Total
+pWMH  := iWMH / Total
+"),
+str_glue("
+# Regressions
+amy.0 ~ SEX_n + AGE
+amy.1 ~ SEX_n + AGE
+amy.2 ~ SEX_n + AGE
+tau.0 ~ SEX_n + AGE
+tau.1 ~ a0 * amy.0 + a2 * amy.2 + SEX_n + AGE
+tau.2 ~ b * amy.2 + SEX_n + AGE
+WMH   ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
+HCv   ~ d0 * amy.0 + d1 * amy.1 + d2 * amy.2
+  + e0 * tau.0 + e1 * tau.1 + e2 * tau.2
+  + f * WMH + SEX_n + AGE
+MMSE  ~ g0 * amy.0 + g1 * amy.1 + g2 * amy.2
+  + h0 * tau.0 + h1 * tau.1 + h2 * tau.2
+  + i * WMH + j * HCv + SEX_n + AGE
+# Mediation
+# Direct effect
+dAmy0 := d0
+dAmy1 := d1
+dAmy2 := d2
+dTau0 := e0
+# Indirect effects
+iTau1 := (a0 + a2) * e1
+iTau2 := a2 * e2
+iWMH  := (c0 + c1 + c2) * f
+# Total effect
+Total := dAmy0 + dAmy2 + dAmy2 + dTau0 + iTau1 + iTau2 + iWMH
+# Proportions
+pAmy0 := dAmy0 / Total
+pAmy1 := dAmy1 / Total
+pAmy2 := dAmy2 / Total
+pTau0 := dTau0 / Total
+pTau1 := iTau1 / Total
+pTau2 := iTau2 / Total
+pWMH  := iWMH / Total
+"))
 
-## Fit models
-# General models with weighted average of all selected ROIs
-fnames          <- here("data/rds", sprintf("mediation_%s_w_bs.rds",
-                                            c("hvr", "moca")))
+### Fit models
+## Exploratory models looking for interconnections of Amy/Tau networks
+fname       <- here("data/rds/med-mods_nets_raket.rds")
 
-if (any(!file.exists(fnames)) | refit_mods) {
-  mods.lst      <- vector("list", 2)
-  for (i in seq_along(mods.lst)) {
-    mods.lst[[i]]  <-
-      sem(c(hvr.mod, moca.mod)[i],
-          data = triad_w.dt,
+if (!file.exists(fname) | refit_mods) {
+  groups    <- DT[, levels(RAKET_group)]
+  mod_nets  <- vector("list", length(groups))
+  setattr(mod_nets, "names", groups)
+
+  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
+                         total = length(groups),
+                         clear = FALSE, width = 75)
+
+  for (i in seq_along(groups)) {
+    pb$tick(tokens = list(what = sprintf("Networks: %s", groups[i])))
+    mod_nets[[i]] <-
+      sem(nets.mods[[i]],
+          data = DT[RAKET_group == groups[i]],
           estimator = "ML",
           se = "bootstrap",
           bootstrap = 1000)
-
-    write_rds(mods.lst[[i]], fnames[i])
   }
 
-  mod_hvr_w.fit         <- mods.lst[[1]]
-  mod_moca_w.fit        <- mods.lst[[2]]
-  rm(mods.lst)
+  write_rds(mod_nets, fname)
 } else {
-  mod_hvr_w.fit         <- read_rds(fnames[1])
-  mod_moca_w.fit        <- read_rds(fnames[2])
-}
-rm(fnames)
-
-# Individual models by ROI
-fnames          <- here("data/rds",
-                        sprintf("mediation_%s_bs.rds", c("hvr", "moca")))
-
-if (any(!file.exists(fnames)) | refit_mods) {
-  mod_hvr.fits  <- mod_moca.fits <- vector("list", rois_amy_tau.dt[, .N])
-  mods.lst      <- list(mod_hvr.fits, mod_moca.fits)
-
-  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
-                         total = length(mods.lst) * rois_amy_tau.dt[, .N],
-                         clear = FALSE, width = 75)
-
-  for (i in seq_along(mods.lst)) {
-    names(mods.lst[[i]]) <- rois_amy_tau.dt[, paste(LABEL_name, SIDE,
-                                                    sep = "_")]
-
-    for (j in seq_along(rois_amy_tau.dt$LABEL_id)) {
-      pb$tick(tokens = list(what = sprintf("%s : %s",
-                                           c("HVR", "MoCA")[i],
-                                           rois_amy_tau.dt[j, LABEL_name])))
-
-      mods.lst[[i]][[j]]  <-
-        sem(c(hvr.mod, moca.mod)[i],
-            data = triad.dt[LABEL_id == rois_amy_tau.dt[j, LABEL_id]],
-            estimator = "ML",
-            se = "bootstrap",
-            bootstrap = 1000)
-    }
-
-    write_rds(mods.lst[[i]], fnames[i])
-  }
-
-  mod_hvr.fits          <- mods.lst[[1]]
-  mod_moca.fits         <- mods.lst[[2]]
-  rm(mods.lst)
-} else {
-  mod_hvr.fits          <- read_rds(fnames[1])
-  mod_moca.fits         <- read_rds(fnames[2])
-}
-rm(fnames)
-
-## Extract Fit measures and paramater estimates
-# Names for data cleaning
-msrs_names      <- mod_hvr.fits[[1]] |> fitMeasures() |> names()
-rois_names      <- rois_amy_tau.dt[, paste(LABEL_name, SIDE, sep = "_")]
-
-# HVR model
-mod_hvr.msrs    <- mod_hvr.fits |>
-  lapply(fitMeasures) |>
-  lapply(as.data.table) |>
-  lapply(transpose) |>
-  rbindlist()
-
-setnames(mod_hvr.msrs, msrs_names)
-mod_hvr.msrs[, ROI := rois_names]
-
-mod_hvr.est     <- mod_hvr.fits |>
-  lapply(standardizedSolution) |>
-  lapply(as.data.table)
-
-mod_hvr.est     <- rois_names |>
-  lapply(function (name) mod_hvr.est[[name]][, ROI := name]) |>
-  rbindlist()
-
-mod_hvr.est     <- mod_hvr.est[op != "~~"]
-
-mod_moca.msrs   <- mod_moca.fits |>
-  lapply(fitMeasures) |>
-  lapply(as.data.table) |>
-  lapply(transpose) |>
-  rbindlist()
-
-setnames(mod_moca.msrs, msrs_names)
-mod_hvr.msrs[, ROI := rois_names]
-
-mod_moca.est    <- mod_moca.fits |>
-  lapply(standardizedSolution) |>
-  lapply(as.data.table)
-
-mod_moca.est    <- rois_names |>
-  lapply(function (name) mod_moca.est[[name]][, ROI := name]) |>
-  rbindlist()
-
-mod_moca.est    <- mod_moca.est[op != "~~"]
-
-## Plot standardized estimates
-# Use only ROIs in BOTH AMY and TAU important lists
-
-
-# HVR model
-DT <- mod_hvr.est[lhs %in% c("dAMY", "iTAU") &
-                  ROI %in% rois_amy_tau.dt[LIST == "BOTH",
-                                           paste(LABEL_name, SIDE,
-                                                 sep = "_")]]
-DT[, label := factor(label, levels = c("dAMY", "iTAU"),
-                     labels = c("Direct: Amyloid", "Indirect: Tau"))]
-
-ordered_rois  <- DT[lhs == "iTAU"][order(est.std), ROI]
-
-p1 <- DT |>
-  ggplot(aes(x = ROI, y = est.std)) +
-  theme_classic(base_size = 12) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-  geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
-                width = 0.2, position = position_dodge(0.5)) +
-  geom_point(shape = 21, fill = "white", size = 1.5) +
-  scale_x_discrete(limits = ordered_rois) +
-  labs(x = "CerebrA ROIs", y = "Standardized estimates",
-       title = "Direct & indirect effects on HC atrophy",
-       caption = "Bootstrap CIs: 1000 resamples") +
-  coord_flip() +
-  facet_wrap(vars(label))
-
-#here("plots/mediation_hvr_std-estimates.png") |>
-  #ggsave(p, width = 6, height = 5, units = "in", dpi = 600)
-
-# MoCA model
-#mod_moca.est[lhs == "dAMY", label := "Direct: Amyloid"]
-#mod_moca.est[lhs == "iTAU", label := "Indirect: Tau"]
-#mod_moca.est[lhs == "iHVR", label := "Indirect: HVR"]
-
-#DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU", "iHVR", "Total")]
-#DT[, label := factor(label,
-                     #levels = c("Total", "dAMY", "iTAU", "iHVR"),
-                     #labels = c("Total", "Direct: Amyloid",
-                                #"Indirect: Tau", "Indirect: HVR"))]
-
-DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU") &
-                  ROI %in% rois_amy_tau.dt[LIST == "BOTH",
-                                           paste(LABEL_name, SIDE,
-                                                 sep = "_")]]
-DT[, label := factor(label, levels = c("dAMY", "iTAU"),
-                     labels = c("Direct: Amyloid", "Indirect: Tau"))]
-
-ordered_rois  <- DT[lhs == "iTAU"][order(-est.std), ROI]
-
-p2 <- DT |>
-  ggplot(aes(x = ROI, y = est.std)) +
-  theme_classic(base_size = 12) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-  geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
-                width = 0.2, position = position_dodge(0.5)) +
-  geom_point(shape = 21, fill = "white", size = 1.5) +
-  scale_x_discrete(limits = ordered_rois) +
-  labs(x = "CerebrA ROIs", y = "Standardized estimates",
-       title = "Direct & indirect effects on MoCA scores",
-       caption = "Bootstrap CIs: 1000 resamples") +
-  coord_flip() +
-  facet_wrap(vars(label))
-
-pp <- p1 + p2
-here("plots/mediation_std-estimates.png") |>
-  ggsave(pp, width = 12, height = 5, units = "in", dpi = 600)
-
-
-# Path plot of selected ROIs model
-fname       <- here("plots/mediation_moca_path.pdf")
-if (!file.exists(fname) | print_plots) {
-labels      <- c(AGE_scan = "Age", SEX_n = "Sex", EDUC = "Education",
-                 HVR_mean_inv = "HC-atrophy", MOCA_score = "MoCA")
-
-  p_plot    <- lavaanPlot2(model = mod_moca_w.fit, labels = labels,
-                            graph_options = list(rankdir = "LR"),
-                            node_options = list(shape = "box"),
-                            edge_options = list(color = "grey"),
-                            coef_labels = T, stand = T,
-                            stars = "regress")
-  embed_plot_pdf(p_plot, fname)
+  mod_nets <- read_rds(fname)
 }
 rm(fname)
+
+## Path plots
+labels      <- vector("list", length(mod_nets))
+labels[[1]] <- c(AGE = "Age", SEX_n = "Sex", amy.0 = "AB-H", tau.0 = "Tau-H")
+labels[[2]] <- c(labels[[1]], amy.1 = "AB-E", tau.1 = "Tau-E")
+labels[[3]] <- c(labels[[2]], amy.2 = "AB-L", tau.2 = "Tau-L")
+
+for (i in seq_along(mod_nets)) {
+  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s", i, "full"))
+  if (!file.exists(fname) & print_plots) {
+    lavaanPlot2(model = mod_nets[[i]], labels = labels[[i]],
+                graph_options = list(rankdir = "LR"),
+                node_options = list(shape = "box"),
+                edge_options = list(color = "grey"),
+                coef_labels = T, stand = T, stars = "regress") |>
+         embed_plot_pdf(fname)
+  }
+
+  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s", i, "sign"))
+  if (!file.exists(fname) & print_plots) {
+    coefs   <- extract_coefs(mod_nets[[i]], stand = TRUE) |>
+      as.data.table() |>
+      {\(x) x[p_val < 0.05]}()
+    if (coefs[, .N] == 0) break
+    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
+    edf     <- create_edges(coefs, ndf, list(color = "grey"),
+                            coef_labels = TRUE, stars = "regress")
+    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot) |>
+      embed_plot_pdf(fname)
+    #rm(coefs, ndf, edf, dot)
+  }
+}
+
+## HVR full models
+fname       <- here("data/rds/med-mods_hvr_raket.rds")
+
+if (!file.exists(fname) | refit_mods) {
+  groups    <- DT[, levels(RAKET_group)]
+  mod_hvr   <- vector("list", length(groups))
+  setattr(mod_hvr, "names", groups)
+
+  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
+                         total = length(groups),
+                         clear = FALSE, width = 75)
+
+  for (i in seq_along(groups)) {
+    pb$tick(tokens = list(what = sprintf("HVR: %s", groups[i])))
+    mod_hvr[[i]] <-
+      sem(hvr.mods[[i]],
+          data = DT[RAKET_group == groups[i]],
+          estimator = "ML",
+          se = "bootstrap",
+          bootstrap = 1000)
+  }
+
+  write_rds(mod_hvr, fname)
+} else {
+  mod_hvr   <- read_rds(fname)
+}
+rm(fname)
+
+## Path plots
+for (i in seq_along(mod_hvr)) {
+  fname     <- here(sprintf("plots/mediation_paths_hvr-%i_%s", i, "full"))
+  if (!file.exists(fname) & print_plots) {
+    lavaanPlot2(model = mod_hvr[[i]], labels = labels[[i]],
+                graph_options = list(rankdir = "LR"),
+                node_options = list(shape = "box"),
+                edge_options = list(color = "grey"),
+                coef_labels = T, stand = T, stars = "regress") |>
+         embed_plot_pdf(fname)
+  }
+
+  fname     <- here(sprintf("plots/mediation_paths_hvr-%i_%s", i, "sign"))
+  if (!file.exists(fname) & print_plots) {
+    coefs   <- extract_coefs(mod_hvr[[i]], stand = TRUE) |>
+      as.data.table() |>
+      {\(x) x[p_val < 0.05]}()
+    if (coefs[, .N] == 0) break
+    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
+    edf     <- create_edges(coefs, ndf, list(color = "grey"),
+                            coef_labels = TRUE, stars = "regress")
+    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot) |>
+      embed_plot_pdf(fname)
+    #rm(coefs, ndf, edf, dot)
+  }
+}
+
+#fname       <- here("plots/mediation_moca_path.pdf")
+#if (!file.exists(fname) | print_plots) {
+#labels      <- c(AGE_scan = "Age", SEX_n = "Sex", EDUC = "Education",
+                 #HVR_mean_inv = "HC-atrophy", MOCA_score = "MoCA")
+
+  #p_plot    <- lavaanPlot2(model = mod_moca_w.fit, labels = labels,
+                            #graph_options = list(rankdir = "LR"),
+                            #node_options = list(shape = "box"),
+                            #edge_options = list(color = "grey"),
+                            #coef_labels = T, stand = T,
+                            #stars = "regress")
+  #embed_plot_pdf(p_plot, fname)
+#}
+#rm(fname)
+
+## HCv full models
+fname       <- here("data/rds/med-mods_hcv_raket.rds")
+
+if (!file.exists(fname) | refit_mods) {
+  groups    <- DT[, levels(RAKET_group)]
+  mod_hcv   <- vector("list", length(groups))
+  setattr(mod_hcv, "names", groups)
+
+  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
+                         total = length(groups),
+                         clear = FALSE, width = 75)
+
+  for (i in seq_along(groups)) {
+    pb$tick(tokens = list(what = sprintf("HCv: %s", groups[i])))
+    mod_hcv[[i]] <-
+      sem(hcv.mods[[i]],
+          data = DT[RAKET_group == groups[i]],
+          estimator = "ML",
+          se = "bootstrap",
+          bootstrap = 1000)
+  }
+
+  write_rds(mod_hcv, fname)
+} else {
+  mod_hcv   <- read_rds(fname)
+}
+rm(fname)
+
+## Path plots
+for (i in seq_along(mod_hcv)) {
+  fname     <- here(sprintf("plots/mediation_paths_hcv-%i_%s", i, "full"))
+  if (!file.exists(fname) & print_plots) {
+    lavaanPlot2(model = mod_hcv[[i]], labels = labels[[i]],
+                graph_options = list(rankdir = "LR"),
+                node_options = list(shape = "box"),
+                edge_options = list(color = "grey"),
+                coef_labels = T, stand = T, stars = "regress") |>
+         embed_plot_pdf(fname)
+  }
+
+  fname     <- here(sprintf("plots/mediation_paths_hcv-%i_%s", i, "sign"))
+  if (!file.exists(fname) & print_plots) {
+    coefs   <- extract_coefs(mod_hcv[[i]], stand = TRUE) |>
+      as.data.table() |>
+      {\(x) x[p_val < 0.05]}()
+    if (coefs[, .N] == 0) break
+    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
+    edf     <- create_edges(coefs, ndf, list(color = "grey"),
+                            coef_labels = TRUE, stars = "regress")
+    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot) |>
+      embed_plot_pdf(fname)
+    #rm(coefs, ndf, edf, dot)
+  }
+}
+### Extract Fit measures and paramater estimates
+## Names for data cleaning
+#msrs_names      <- mod_hvr.fits[[1]] |> fitMeasures() |> names()
+#rois_names      <- rois_amy_tau.dt[, paste(LABEL_name, SIDE, sep = "_")]
+
+## HVR model
+#mod_hvr.msrs    <- mod_hvr.fits |>
+  #lapply(fitMeasures) |>
+  #lapply(as.data.table) |>
+  #lapply(transpose) |>
+  #rbindlist()
+
+#setnames(mod_hvr.msrs, msrs_names)
+#mod_hvr.msrs[, ROI := rois_names]
+
+#mod_hvr.est     <- mod_hvr.fits |>
+  #lapply(standardizedSolution) |>
+  #lapply(as.data.table)
+
+#mod_hvr.est     <- rois_names |>
+  #lapply(function (name) mod_hvr.est[[name]][, ROI := name]) |>
+  #rbindlist()
+
+#mod_hvr.est     <- mod_hvr.est[op != "~~"]
+
+#mod_moca.msrs   <- mod_moca.fits |>
+  #lapply(fitMeasures) |>
+  #lapply(as.data.table) |>
+  #lapply(transpose) |>
+  #rbindlist()
+
+#setnames(mod_moca.msrs, msrs_names)
+#mod_hvr.msrs[, ROI := rois_names]
+
+#mod_moca.est    <- mod_moca.fits |>
+  #lapply(standardizedSolution) |>
+  #lapply(as.data.table)
+
+#mod_moca.est    <- rois_names |>
+  #lapply(function (name) mod_moca.est[[name]][, ROI := name]) |>
+  #rbindlist()
+
+#mod_moca.est    <- mod_moca.est[op != "~~"]
+
+### Plot standardized estimates
+## Use only ROIs in BOTH AMY and TAU important lists
+
+
+## HVR model
+#DT <- mod_hvr.est[lhs %in% c("dAMY", "iTAU") &
+                  #ROI %in% rois_amy_tau.dt[LIST == "BOTH",
+                                           #paste(LABEL_name, SIDE,
+                                                 #sep = "_")]]
+#DT[, label := factor(label, levels = c("dAMY", "iTAU"),
+                     #labels = c("Direct: Amyloid", "Indirect: Tau"))]
+
+#ordered_rois  <- DT[lhs == "iTAU"][order(est.std), ROI]
+
+#p1 <- DT |>
+  #ggplot(aes(x = ROI, y = est.std)) +
+  #theme_classic(base_size = 12) +
+  #geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  #geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
+                #width = 0.2, position = position_dodge(0.5)) +
+  #geom_point(shape = 21, fill = "white", size = 1.5) +
+  #scale_x_discrete(limits = ordered_rois) +
+  #labs(x = "CerebrA ROIs", y = "Standardized estimates",
+       #title = "Direct & indirect effects on HC atrophy",
+       #caption = "Bootstrap CIs: 1000 resamples") +
+  #coord_flip() +
+  #facet_wrap(vars(label))
+
+##here("plots/mediation_hvr_std-estimates.png") |>
+  ##ggsave(p, width = 6, height = 5, units = "in", dpi = 600)
+
+## MoCA model
+##mod_moca.est[lhs == "dAMY", label := "Direct: Amyloid"]
+##mod_moca.est[lhs == "iTAU", label := "Indirect: Tau"]
+##mod_moca.est[lhs == "iHVR", label := "Indirect: HVR"]
+
+##DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU", "iHVR", "Total")]
+##DT[, label := factor(label,
+                     ##levels = c("Total", "dAMY", "iTAU", "iHVR"),
+                     ##labels = c("Total", "Direct: Amyloid",
+                                ##"Indirect: Tau", "Indirect: HVR"))]
+
+#DT <- mod_moca.est[lhs %in% c("dAMY", "iTAU") &
+                  #ROI %in% rois_amy_tau.dt[LIST == "BOTH",
+                                           #paste(LABEL_name, SIDE,
+                                                 #sep = "_")]]
+#DT[, label := factor(label, levels = c("dAMY", "iTAU"),
+                     #labels = c("Direct: Amyloid", "Indirect: Tau"))]
+
+#ordered_rois  <- DT[lhs == "iTAU"][order(-est.std), ROI]
+
+#p2 <- DT |>
+  #ggplot(aes(x = ROI, y = est.std)) +
+  #theme_classic(base_size = 12) +
+  #geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  #geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper),
+                #width = 0.2, position = position_dodge(0.5)) +
+  #geom_point(shape = 21, fill = "white", size = 1.5) +
+  #scale_x_discrete(limits = ordered_rois) +
+  #labs(x = "CerebrA ROIs", y = "Standardized estimates",
+       #title = "Direct & indirect effects on MoCA scores",
+       #caption = "Bootstrap CIs: 1000 resamples") +
+  #coord_flip() +
+  #facet_wrap(vars(label))
+
+#pp <- p1 + p2
+#here("plots/mediation_std-estimates.png") |>
+  #ggsave(pp, width = 12, height = 5, units = "in", dpi = 600)
+
+
