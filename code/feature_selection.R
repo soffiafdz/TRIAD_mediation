@@ -13,7 +13,7 @@ library(patchwork)
 
 
 ## Redo algorithm
-reselect_rois   <- FALSE
+reselect_rois   <- TRUE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
@@ -127,7 +127,7 @@ if (reselect_rois) {
 
   write_rds(rois_tau.dt, fpath)
 } else {
-  rois_tau.lst  <- read_rds(fpath)
+  rois_tau.dt  <- read_rds(fpath)
 }
 
 ## Plots
@@ -162,20 +162,20 @@ pp <- p1 + p2
 here("plots/boruta-rois_raket.png") |>
   ggsave(pp, width = 11, height = 11, units = "in", dpi = 600)
 
-## Find selected ROIs that are present on both Amy and Tau lists
+## Merge ROIS
 if (reselect_rois) {
   rois.dt       <- rbindlist(list(rois_amy.dt[, .(id, group, suvr = "amy")],
                                   rois_tau.dt[, .(id, group, suvr = "tau")]))
 
-  setkey(rois.dt, id, group)
+  #setkey(rois.dt, id, group)
 
-  rois_both.dt  <- rois.dt[, .N, .(id, group) ][N == 2, -"N"]
+  #rois_both.dt  <- rois.dt[, .N, .(id, group) ][N == 2, -"N"]
 
-  rois.dt       <- rbindlist(list(rois_both.dt,
-                                  rois.dt[!rois_both.dt]),
-                             fill = TRUE)
+  #rois.dt       <- rbindlist(list(rois_both.dt,
+                                  #rois.dt[!rois_both.dt]),
+                             #fill = TRUE)
 
-  rois.dt[is.na(suvr), suvr := "both"]
+  #rois.dt[is.na(suvr), suvr := "both"]
+  #rm(rois_both.dt)
   write_rds(rois.dt, here("data/rds/cerebra_rois_raket.rds"))
-  rm(rois_both.dt)
 }
