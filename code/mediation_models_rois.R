@@ -78,285 +78,73 @@ for (i in rev(seq_along(networks))) {
   rm(net.dt)
 }
 
+# Wide → Long format
+DT <- melt(DT, measure = patterns("amy", "tau"),
+           variable = "NET", value = c("AMY", "TAU"))
+
+# Keep only Disease with their respective networks
+DT <- rbindlist(list(DT[RAKET_group %like% "Early" & NET == 2],
+                     DT[RAKET_group %like% "Late" & NET == 3]))
+
 ## Model definitions
-nets.mods   <-
-  list(str_glue("
+hvr.mod     <- str_glue("
 # Regressions
-amy.0 ~ SEX_n + AGE
-tau.0 ~ a * amy.0 + SEX_n + AGE
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-tau.0 ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
-tau.1 ~ b0 * amy.0 + b1 * amy.1 + SEX_n + AGE
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-amy.2 ~ SEX_n + AGE
-tau.0 ~ a0 * amy.0 + a1 * amy.1 + a2 * amy.2 + SEX_n + AGE
-tau.1 ~ b0 * amy.0 + b1 * amy.1 + b2 * amy.2 + SEX_n + AGE
-tau.2 ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
-"))
-
-hvr.mods    <-
-  list(str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-tau.0 ~ a * amy.0 + SEX_n + AGE
-WMH   ~ b * amy.0 + SEX_n + AGE
-HVR   ~ c * amy.0 + d * tau.0 + e * WMH + SEX_n + AGE
-MMSE  ~ f * amy.0 + g * tau.0 + h * WMH + i * HVR + SEX_n + AGE
+AMY ~ SEX_n + AGE
+TAU ~ a * AMY + SEX_n + AGE
+WMH   ~ b * AMY + SEX_n + AGE
+HVR   ~ c * AMY + d * TAU + e * WMH + SEX_n + AGE
+MMSE  ~ f * AMY + g * TAU + h * WMH + i * HVR + SEX_n + AGE
 # Mediation
 # Direct effect
-dAmy := c
+dAmy := f
 # Indirect effects
-iTau  := a * d
-iWMH  := b * e
+iTau  := a * g
+iWMH  := b * h
+iHVR  := (c + d + e) * i
 # Total effect
-Total := dAmy + iTau + iWMH
+Total := dAmy + iTau + iWMH + iHVR
 # Proportions
 pAmy  := dAmy / Total
 pTau  := iTau / Total
 pWMH  := iWMH / Total
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-tau.0 ~ SEX_n + AGE
-tau.1 ~ SEX_n + AGE
-WMH   ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
-HVR   ~ b0 * amy.0 + b1 * amy.1 + c0 * tau.0 + c1 * tau.1
-  + d * WMH + SEX_n + AGE
-MMSE  ~ e0 * amy.0 + e1 * amy.1 + f0 * tau.0 + f1 * tau.1
-  + g * WMH + h * HVR + SEX_n + AGE
-# Mediation
-# Direct effects
-dAmy0 := b0
-dAmy1 := b1
-dTau0 := c0
-dTau1 := c1
-# Indirect effects
-iWMH  := (a0 + a1) * d
-# Total effect
-Total := dAmy0 + dAmy1 + dTau0 + dTau1 + iWMH
-# Proportions
-pAmy0 := dAmy0 / Total
-pAmy1 := dAmy1 / Total
-pTau0 := dTau0 / Total
-pTau1 := dTau1 / Total
-pWMH  := iWMH / Total
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-amy.2 ~ SEX_n + AGE
-tau.0 ~ SEX_n + AGE
-tau.1 ~ a0 * amy.0 + a2 * amy.2 + SEX_n + AGE
-tau.2 ~ b * amy.2 + SEX_n + AGE
-WMH   ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
-HVR   ~ d0 * amy.0 + d1 * amy.1 + d2 * amy.2
-  + e0 * tau.0 + e1 * tau.1 + e2 * tau.2
-  + f * WMH + SEX_n + AGE
-MMSE  ~ g0 * amy.0 + g1 * amy.1 + g2 * amy.2
-  + h0 * tau.0 + h1 * tau.1 + h2 * tau.2
-  + i * WMH + j * HVR + SEX_n + AGE
-# Mediation
-# Direct effect
-dAmy0 := d0
-dAmy1 := d1
-dAmy2 := d2
-dTau0 := e0
-# Indirect effects
-iTau1 := (a0 + a2) * e1
-iTau2 := a2 * e2
-iWMH  := (c0 + c1 + c2) * f
-# Total effect
-Total := dAmy0 + dAmy2 + dAmy2 + dTau0 + iTau1 + iTau2 + iWMH
-# Proportions
-pAmy0 := dAmy0 / Total
-pAmy1 := dAmy1 / Total
-pAmy2 := dAmy2 / Total
-pTau0 := dTau0 / Total
-pTau1 := iTau1 / Total
-pTau2 := iTau2 / Total
-pWMH  := iWMH / Total
-"))
+pHVR  := iHVR / Total
+")
 
-hcv.mods    <-
-  list(str_glue("
+hcv.mod     <-
+  str_glue("
 # Regressions
-amy.0 ~ SEX_n + AGE
-tau.0 ~ a * amy.0 + SEX_n + AGE
-WMH   ~ b * amy.0 + SEX_n + AGE
-HCv   ~ c * amy.0 + d * tau.0 + e * WMH + SEX_n + AGE
-MMSE  ~ f * amy.0 + g * tau.0 + h * WMH + i * HCv + SEX_n + AGE
+AMY ~ SEX_n + AGE
+TAU ~ a * AMY + SEX_n + AGE
+WMH   ~ b * AMY + SEX_n + AGE
+HCv   ~ c * AMY + d * TAU + e * WMH + SEX_n + AGE
+MMSE  ~ f * AMY + g * TAU + h * WMH + i * HCv + SEX_n + AGE
 # Mediation
 # Direct effect
-dAmy := c
+dAmy := f
 # Indirect effects
-iTau  := a * d
-iWMH  := b * e
+iTau  := a * g
+iWMH  := b * h
+iHCv  := (c + d + e) * i
 # Total effect
-Total := dAmy + iTau + iWMH
+Total := dAmy + iTau + iWMH + iHCv
 # Proportions
 pAmy  := dAmy / Total
 pTau  := iTau / Total
 pWMH  := iWMH / Total
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-tau.0 ~ SEX_n + AGE
-tau.1 ~ SEX_n + AGE
-WMH   ~ a0 * amy.0 + a1 * amy.1 + SEX_n + AGE
-HCv   ~ b0 * amy.0 + b1 * amy.1 + c0 * tau.0 + c1 * tau.1
-  + d * WMH + SEX_n + AGE
-MMSE  ~ e0 * amy.0 + e1 * amy.1 + f0 * tau.0 + f1 * tau.1
-  + g * WMH + h * HCv + SEX_n + AGE
-# Mediation
-# Direct effects
-dAmy0 := b0
-dAmy1 := b1
-dTau0 := c0
-dTau1 := c1
-# Indirect effects
-iWMH  := (a0 + a1) * d
-# Total effect
-Total := dAmy0 + dAmy1 + dTau0 + dTau1 + iWMH
-# Proportions
-pAmy0 := dAmy0 / Total
-pAmy1 := dAmy1 / Total
-pTau0 := dTau0 / Total
-pTau1 := dTau1 / Total
-pWMH  := iWMH / Total
-"),
-str_glue("
-# Regressions
-amy.0 ~ SEX_n + AGE
-amy.1 ~ SEX_n + AGE
-amy.2 ~ SEX_n + AGE
-tau.0 ~ SEX_n + AGE
-tau.1 ~ a0 * amy.0 + a2 * amy.2 + SEX_n + AGE
-tau.2 ~ b * amy.2 + SEX_n + AGE
-WMH   ~ c0 * amy.0 + c1 * amy.1 + c2 * amy.2 + SEX_n + AGE
-HCv   ~ d0 * amy.0 + d1 * amy.1 + d2 * amy.2
-  + e0 * tau.0 + e1 * tau.1 + e2 * tau.2
-  + f * WMH + SEX_n + AGE
-MMSE  ~ g0 * amy.0 + g1 * amy.1 + g2 * amy.2
-  + h0 * tau.0 + h1 * tau.1 + h2 * tau.2
-  + i * WMH + j * HCv + SEX_n + AGE
-# Mediation
-# Direct effect
-dAmy0 := d0
-dAmy1 := d1
-dAmy2 := d2
-dTau0 := e0
-# Indirect effects
-iTau1 := (a0 + a2) * e1
-iTau2 := a2 * e2
-iWMH  := (c0 + c1 + c2) * f
-# Total effect
-Total := dAmy0 + dAmy2 + dAmy2 + dTau0 + iTau1 + iTau2 + iWMH
-# Proportions
-pAmy0 := dAmy0 / Total
-pAmy1 := dAmy1 / Total
-pAmy2 := dAmy2 / Total
-pTau0 := dTau0 / Total
-pTau1 := iTau1 / Total
-pTau2 := iTau2 / Total
-pWMH  := iWMH / Total
-"))
+pHCv  := iHCv / Total
+")
 
 ### Fit models
-## Exploratory models looking for interconnections of Amy/Tau networks
-fname       <- here("data/rds/med-mods_nets_raket.rds")
-
-if (!file.exists(fname) | refit_mods) {
-  groups    <- DT[, levels(RAKET_group)]
-  mod_nets  <- vector("list", length(groups))
-  setattr(mod_nets, "names", groups)
-
-  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
-                         total = length(groups),
-                         clear = FALSE, width = 75)
-
-  for (i in seq_along(groups)) {
-    pb$tick(tokens = list(what = sprintf("Networks: %s", groups[i])))
-    mod_nets[[i]] <-
-      sem(nets.mods[[i]],
-          data = DT[RAKET_group == groups[i]],
-          estimator = "ML",
-          se = "bootstrap",
-          bootstrap = 1000)
-  }
-
-  write_rds(mod_nets, fname)
-} else {
-  mod_nets <- read_rds(fname)
-}
-rm(fname)
-
-## Path plots
-labels      <- vector("list", length(mod_nets))
-labels[[1]] <- c(AGE = "Age", SEX_n = "Sex", amy.0 = "AB-H", tau.0 = "Tau-H")
-labels[[2]] <- c(labels[[1]], amy.1 = "AB-E", tau.1 = "Tau-E")
-labels[[3]] <- c(labels[[2]], amy.2 = "AB-L", tau.2 = "Tau-L")
-
-for (i in seq_along(mod_nets)) {
-  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s.pdf", i, "full"))
-  if (!file.exists(fname) & print_plots) {
-    lavaanPlot2(model = mod_nets[[i]], labels = labels[[i]],
-                graph_options = list(rankdir = "LR"),
-                node_options = list(shape = "box"),
-                edge_options = list(color = "grey"),
-                coef_labels = T, stand = T, stars = "regress") |>
-         embed_plot_pdf(fname)
-  }
-
-  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s.pdf", i, "sign"))
-  if (!file.exists(fname) & print_plots) {
-    coefs   <- extract_coefs(mod_nets[[i]], stand = TRUE) |>
-      as.data.table() |>
-      {\(x) x[p_val < 0.05]}()
-    if (coefs[, .N] == 0) next
-    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
-    edf     <- create_edges(coefs, ndf, list(color = "grey"),
-                            coef_labels = TRUE, stars = "regress")
-    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
-    lavaanPlot2(gr_viz = dot) |>
-      embed_plot_pdf(fname)
-    #rm(coefs, ndf, edf, dot)
-  }
-}
-
 ## HVR full models
-fname       <- here("data/rds/med-mods_hvr_raket.rds")
+fname       <- here("data/rds/med-mod_hvr_raket_ug.rds")
 
 if (!file.exists(fname) | refit_mods) {
-  groups    <- DT[, levels(RAKET_group)]
-  mod_hvr   <- vector("list", length(groups))
-  setattr(mod_hvr, "names", groups)
-
-  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
-                         total = length(groups),
-                         clear = FALSE, width = 75)
-
-  for (i in seq_along(groups)) {
-    pb$tick(tokens = list(what = sprintf("HVR: %s", groups[i])))
-    mod_hvr[[i]] <-
-      sem(hvr.mods[[i]],
-          data = DT[RAKET_group == groups[i]],
-          estimator = "ML",
-          se = "bootstrap",
-          bootstrap = 1000)
-  }
+  mod_hvr <-
+    sem(hvr.mod,
+        data = DT,
+        estimator = "ML",
+        se = "bootstrap",
+        bootstrap = 1000)
 
   write_rds(mod_hvr, fname)
 } else {
@@ -365,69 +153,41 @@ if (!file.exists(fname) | refit_mods) {
 rm(fname)
 
 ## Path plots
-for (i in seq_along(mod_hvr)) {
-  fname     <- here(sprintf("plots/mediation_paths_hvr-%i_%s", i, "full"))
-  if (!file.exists(fname) & print_plots) {
-    lavaanPlot2(model = mod_hvr[[i]], labels = labels[[i]],
-                graph_options = list(rankdir = "LR"),
-                node_options = list(shape = "box"),
-                edge_options = list(color = "grey"),
-                coef_labels = T, stand = T, stars = "regress") |>
-         embed_plot_pdf(fname)
-  }
-
-  fname     <- here(sprintf("plots/mediation_paths_hvr-%i_%s", i, "sign"))
-  if (!file.exists(fname) & print_plots) {
-    coefs   <- extract_coefs(mod_hvr[[i]], stand = TRUE) |>
-      as.data.table() |>
-      {\(x) x[p_val < 0.05]}()
-    if (coefs[, .N] == 0) break
-    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
-    edf     <- create_edges(coefs, ndf, list(color = "grey"),
-                            coef_labels = TRUE, stars = "regress")
-    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
-    lavaanPlot2(gr_viz = dot) |>
-      embed_plot_pdf(fname)
-    #rm(coefs, ndf, edf, dot)
-  }
+fname     <- here("plots/mediation_paths_hvr_ug_full.pdf")
+if (!file.exists(fname) & print_plots) {
+  lavaanPlot2(model = mod_hvr, labels = c(SEX_n = "SEX"),
+              graph_options = list(rankdir = "LR"),
+              node_options = list(shape = "box"),
+              edge_options = list(color = "grey"),
+              coef_labels = T, stand = T, stars = "regress") |>
+       embed_plot_pdf(fname)
 }
 
-#fname       <- here("plots/mediation_moca_path.pdf")
-#if (!file.exists(fname) | print_plots) {
-#labels      <- c(AGE_scan = "Age", SEX_n = "Sex", EDUC = "Education",
-                 #HVR_mean_inv = "HC-atrophy", MOCA_score = "MoCA")
-
-  #p_plot    <- lavaanPlot2(model = mod_moca_w.fit, labels = labels,
-                            #graph_options = list(rankdir = "LR"),
-                            #node_options = list(shape = "box"),
-                            #edge_options = list(color = "grey"),
-                            #coef_labels = T, stand = T,
-                            #stars = "regress")
-  #embed_plot_pdf(p_plot, fname)
-#}
-#rm(fname)
+fname     <- here("plots/mediation_paths_hvr_ug_sign.pdf")
+if (!file.exists(fname) & print_plots) {
+  coefs   <- extract_coefs(mod_hvr, stand = TRUE) |>
+    as.data.table() |>
+    {\(x) x[p_val < 0.05]}()
+  if (coefs[, .N] == 0) break
+  ndf     <- create_nodes(coefs, c(SEX_n = "SEX"), list(shape = "box"))
+  edf     <- create_edges(coefs, ndf, list(color = "grey"),
+                          coef_labels = TRUE, stars = "regress")
+  dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
+  lavaanPlot2(gr_viz = dot) |>
+    embed_plot_pdf(fname)
+  #rm(coefs, ndf, edf, dot)
+}
 
 ## HCv full models
-fname       <- here("data/rds/med-mods_hcv_raket.rds")
+fname       <- here("data/rds/med-mod_hcv_raket_ug.rds")
 
 if (!file.exists(fname) | refit_mods) {
-  groups    <- DT[, levels(RAKET_group)]
-  mod_hcv   <- vector("list", length(groups))
-  setattr(mod_hcv, "names", groups)
-
-  pb <- progress_bar$new(format = "Models | :what [:bar] :current/:total",
-                         total = length(groups),
-                         clear = FALSE, width = 75)
-
-  for (i in seq_along(groups)) {
-    pb$tick(tokens = list(what = sprintf("HCv: %s", groups[i])))
-    mod_hcv[[i]] <-
-      sem(hcv.mods[[i]],
-          data = DT[RAKET_group == groups[i]],
-          estimator = "ML",
-          se = "bootstrap",
-          bootstrap = 1000)
-  }
+  mod_hcv <-
+    sem(hcv.mod,
+        data = DT,
+        estimator = "ML",
+        se = "bootstrap",
+        bootstrap = 1000)
 
   write_rds(mod_hcv, fname)
 } else {
@@ -436,32 +196,31 @@ if (!file.exists(fname) | refit_mods) {
 rm(fname)
 
 ## Path plots
-for (i in seq_along(mod_hcv)) {
-  fname     <- here(sprintf("plots/mediation_paths_hcv-%i_%s", i, "full"))
-  if (!file.exists(fname) & print_plots) {
-    lavaanPlot2(model = mod_hcv[[i]], labels = labels[[i]],
-                graph_options = list(rankdir = "LR"),
-                node_options = list(shape = "box"),
-                edge_options = list(color = "grey"),
-                coef_labels = T, stand = T, stars = "regress") |>
-         embed_plot_pdf(fname)
-  }
-
-  fname     <- here(sprintf("plots/mediation_paths_hcv-%i_%s", i, "sign"))
-  if (!file.exists(fname) & print_plots) {
-    coefs   <- extract_coefs(mod_hcv[[i]], stand = TRUE) |>
-      as.data.table() |>
-      {\(x) x[p_val < 0.05]}()
-    if (coefs[, .N] == 0) break
-    ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
-    edf     <- create_edges(coefs, ndf, list(color = "grey"),
-                            coef_labels = TRUE, stars = "regress")
-    dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
-    lavaanPlot2(gr_viz = dot) |>
-      embed_plot_pdf(fname)
-    #rm(coefs, ndf, edf, dot)
-  }
+fname     <- here("plots/mediation_paths_hcv_ug_full.pdf")
+if (!file.exists(fname) & print_plots) {
+  lavaanPlot2(model = mod_hcv, labels = c(SEX_n = "SEX"),
+              graph_options = list(rankdir = "LR"),
+              node_options = list(shape = "box"),
+              edge_options = list(color = "grey"),
+              coef_labels = T, stand = T, stars = "regress") |>
+       embed_plot_pdf(fname)
 }
+
+fname     <- here("plots/mediation_paths_hcv_ug_sign.pdf")
+if (!file.exists(fname) & print_plots) {
+  coefs   <- extract_coefs(mod_hcv, stand = TRUE) |>
+    as.data.table() |>
+    {\(x) x[p_val < 0.05]}()
+  if (coefs[, .N] == 0) break
+  ndf     <- create_nodes(coefs, c(SEX_n = "SEX"), list(shape = "box"))
+  edf     <- create_edges(coefs, ndf, list(color = "grey"),
+                          coef_labels = TRUE, stars = "regress")
+  dot     <- convert_graph(ndf, edf, list(rankdir = "LR"))
+  lavaanPlot2(gr_viz = dot) |>
+    embed_plot_pdf(fname)
+  #rm(coefs, ndf, edf, dot)
+}
+
 ### Extract Fit measures and paramater estimates
 ## Names for data cleaning
 #msrs_names      <- mod_hvr.fits[[1]] |> fitMeasures() |> names()
