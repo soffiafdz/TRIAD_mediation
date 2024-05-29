@@ -310,7 +310,7 @@ labels[[2]] <- c(labels[[1]], amy.1 = "AB-E", tau.1 = "Tau-E")
 labels[[3]] <- c(labels[[2]], amy.2 = "AB-L", tau.2 = "Tau-L")
 
 for (i in seq_along(mod_nets)) {
-  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s", i, "full"))
+  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s.pdf", i, "full"))
   if (!file.exists(fname) & print_plots) {
     lavaanPlot2(model = mod_nets[[i]], labels = labels[[i]],
                 graph_options = list(rankdir = "LR"),
@@ -320,12 +320,12 @@ for (i in seq_along(mod_nets)) {
          embed_plot_pdf(fname)
   }
 
-  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s", i, "sign"))
+  fname     <- here(sprintf("plots/mediation_paths_nets-%i_%s.pdf", i, "sign"))
   if (!file.exists(fname) & print_plots) {
     coefs   <- extract_coefs(mod_nets[[i]], stand = TRUE) |>
       as.data.table() |>
       {\(x) x[p_val < 0.05]}()
-    if (coefs[, .N] == 0) break
+    if (coefs[, .N] == 0) next
     ndf     <- create_nodes(coefs, labels[[i]], list(shape = "box"))
     edf     <- create_edges(coefs, ndf, list(color = "grey"),
                             coef_labels = TRUE, stars = "regress")
