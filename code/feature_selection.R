@@ -13,7 +13,7 @@ library(patchwork)
 
 
 ## Redo algorithm
-reselect_rois   <- TRUE
+reselect_rois   <- FALSE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
@@ -53,7 +53,7 @@ rm(fpaths, raket.dt, pet.dt, all_subs.dt)
 
 ## Feature Selection and Clustering
 # Amyloid
-fpath           <- here("data/rds/cerebra_rois_raket_amy.rds")
+fpath           <- here("data/rds/cerebra_rois_raket_amy_all.rds")
 if (!file.exists(fpath)) reselect_rois <- TRUE
 
 if (reselect_rois) {
@@ -62,29 +62,18 @@ if (reselect_rois) {
 
   cerebra_rois  <- str_subset(names(amy.dt), "AMY")
 
-  raket_grps    <- amy.dt[, levels(RAKET_group)]
-  rois_amy.lst  <- vector("list", 3)
-  names(rois_amy.lst)   <- raket_grps
-
-  for (i in seq_along(raket_grps)) {
-    rois_amy.lst[[i]]   <-
-      Boruta(amy.dt[RAKET_group == raket_grps[i], ..cerebra_rois],
-             amy.dt[RAKET_group == raket_grps[i], RAKET_edt]) |>
+  rois_amy.dt   <-
+    Boruta(amy.dt[RAKET_group != "Healthy", ..cerebra_rois],
+           amy.dt[RAKET_group != "Healthy", RAKET_edt]) |>
       #TentativeRoughFix() |>
       #getSelectedAttributes()
       attStats() |>
       as.data.table(keep.rownames = "id") |>
       {\(x) x[!decision == "Rejected"]} ()
-  }
 
-  rois_amy.dt   <- rbindlist(rois_amy.lst, idcol = "group")
   rois_amy.dt[, `:=`(id = str_remove(id, "^.{4}"),
-                     group = factor(group, levels = c("Healthy",
-                                                      "Early stages",
-                                                      "Late stages")),
                      decision = factor(decision,
                                        levels = c("Confirmed", "Tentative")))]
-  rm(rois_amy.lst)
 
   write_rds(rois_amy.dt, fpath)
 } else {
@@ -92,7 +81,7 @@ if (reselect_rois) {
 }
 
 ## Tau
-fpath           <- here("data/rds/cerebra_rois_raket_tau.rds")
+fpath           <- here("data/rds/cerebra_rois_raket_tau_all.rds")
 if (!file.exists(fpath)) reselect_rois <- TRUE
 
 if (reselect_rois) {
@@ -101,73 +90,33 @@ if (reselect_rois) {
 
   cerebra_rois  <- str_subset(names(tau.dt), "TAU")
 
-  raket_grps    <- tau.dt[, levels(RAKET_group)]
-  rois_tau.lst  <- vector("list", 3)
-  names(rois_tau.lst)   <- raket_grps
+  rois_tau.dt <-
+    Boruta(tau.dt[RAKET_group != "Healthy", ..cerebra_rois],
+           tau.dt[RAKET_group != "Healthy", RAKET_edt]) |>
+    #TentativeRoughFix() |>
+    #getSelectedAttributes()
+    attStats() |>
+    as.data.table(keep.rownames = "id") |>
+    {\(x) x[!decision == "Rejected"]} ()
 
-  for (i in seq_along(raket_grps)) {
-    rois_tau.lst[[i]]   <-
-      Boruta(tau.dt[RAKET_group == raket_grps[i], ..cerebra_rois],
-             tau.dt[RAKET_group == raket_grps[i], RAKET_edt]) |>
-      #TentativeRoughFix() |>
-      #getSelectedAttributes()
-      attStats() |>
-      as.data.table(keep.rownames = "id") |>
-      {\(x) x[!decision == "Rejected"]} ()
-  }
-
-  rois_tau.dt   <- rbindlist(rois_tau.lst, idcol = "group")
   rois_tau.dt[, `:=`(id = str_remove(id, "^.{4}"),
-                     group = factor(group, levels = c("Healthy",
-                                                      "Early stages",
-                                                      "Late stages")),
                      decision = factor(decision,
                                        levels = c("Confirmed", "Tentative")))]
-  rm(rois_tau.lst)
 
   write_rds(rois_tau.dt, fpath)
 } else {
   rois_tau.dt  <- read_rds(fpath)
 }
 
-## Plots
-p1 <-
-  rois_amy.dt |>
-  ggplot(aes(x = id, y = meanImp, shape = decision)) +
-    theme_classic(base_size = 12) +
-    geom_errorbar(aes(ymin = minImp, ymax = maxImp),
-                  width = .2, position = position_dodge(.5)) +
-    geom_point(fill = "white", size = 3) +
-    scale_shape_manual(values = 24:25, guide = "none") +
-    labs(x = "Cerebra ROIs", y = "Importance", shape = "Decision",
-         title = "Selected ROIs: Amyloid") +
-    coord_flip() +
-    facet_col(vars(group), scales = "free_y", space = "free")
-
-p2 <-
-  rois_tau.dt |>
-  ggplot(aes(x = id, y = meanImp, shape = decision)) +
-    theme_classic(base_size = 12) +
-    geom_errorbar(aes(ymin = minImp, ymax = maxImp),
-                  width = .2, position = position_dodge(.5)) +
-    geom_point(fill = "white", size = 3) +
-    scale_shape_manual(values = 24:25) +
-    labs(x = "Cerebra ROIs", y = "Importance", shape = "Decision",
-         title = "Selected ROIs: Tau",
-         caption = "Features selected to predict RAKET disease offset using Boruta") +
-    coord_flip() +
-    facet_col(vars(group), scales = "free_y", space = "free")
-
-pp <- p1 + p2
-here("plots/boruta-rois_raket.png") |>
-  ggsave(pp, width = 11, height = 11, units = "in", dpi = 600)
-
 ## Merge ROIS
-if (reselect_rois) {
-  rois.dt       <- rbindlist(list(rois_amy.dt[, .(id, group, suvr = "amy")],
-                                  rois_tau.dt[, .(id, group, suvr = "tau")]))
+fname           <- here("data/rds/cerebra_rois_raket_all.rds")
+#if (reselect_rois | !file.exists(fname)) {
+if (TRUE) {
+  rois_amy.dt[, suvr := "amy"]
+  rois_tau.dt[, suvr := "tau"]
+  rois.dt       <- rbindlist(list(rois_amy.dt, rois_tau.dt))
 
-  #setkey(rois.dt, id, group)
+  #setkey(rois.dt, id)
 
   #rois_both.dt  <- rois.dt[, .N, .(id, group) ][N == 2, -"N"]
 
@@ -177,5 +126,22 @@ if (reselect_rois) {
 
   #rois.dt[is.na(suvr), suvr := "both"]
   #rm(rois_both.dt)
-  write_rds(rois.dt, here("data/rds/cerebra_rois_raket.rds"))
+  write_rds(rois.dt, fname)
+} else {
+  rois.dt       <- read_rds(fname)
 }
+
+## Plot
+rois.dt |>
+  ggplot(aes(x = id, y = meanImp, shape = decision)) +
+    theme_classic(base_size = 12) +
+    geom_errorbar(aes(ymin = minImp, ymax = maxImp),
+                  width = .2, position = position_dodge(.5)) +
+    geom_point(fill = "white", size = 3) +
+    scale_shape_manual(values = 24:25, guide = "none") +
+    labs(x = "Cerebra ROIs", y = "Importance", shape = "Decision") +
+    coord_flip() +
+    facet_wrap(vars(suvr))
+
+here("plots/boruta_rois_raket_all.png") |>
+  ggsave(width = 11, height = 11, units = "in", dpi = 600)
