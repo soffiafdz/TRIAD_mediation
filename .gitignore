@@ -3,3 +3,7 @@ ohbm/
 libraries/
 plots/
 aaic/
+export/
+lists/
+tables/
+*.xfm
