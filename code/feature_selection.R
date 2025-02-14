@@ -13,7 +13,7 @@ library(patchwork)
 
 
 ## Redo algorithm
-reselect_rois   <- TRUE
+reselect_rois   <- FALSE
 
 ## Read/Parse CSV files
 fpaths          <- here("data/rds",
