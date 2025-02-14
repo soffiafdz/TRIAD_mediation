@@ -1,0 +1,6 @@
+[submodule "code/darq"]
+	path = code/darq
+	url = git@github.com:vfonov/DARQ.git
+[submodule "code/py_deep_seg"]
+	path = code/py_deep_seg
+	url = git@github.com:NIST-MNI/py_deep_seg.git
