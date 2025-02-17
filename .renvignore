@@ -1,0 +1,13 @@
+data
+export
+libraries
+lists
+plots
+tables
+tmp
+code/py_deep_seg
+code/darq
+*.txt
+*.yml
+*.lst
+*.xfm
