@@ -9,71 +9,92 @@ library(stargazer)
 library(progress)
 #library(parameters)
 
-ReFitModels <- F
+REFITMODELS <- F
+PRINTPLOTS <- T
 
 ### FUNCTIONS
 here('code/functions.R') |> source()
 
 ### INPUT
-fpaths      <- here("data/rds", c("adni_hc-hvr.rds",
-                                  "adni_dxs_imputed.rds",
-                                  "adni_age_calculated.rds",
-                                  "ucb_pet-amy.rds",
-                                  "ucb_pet-tau.rds",
-                                  "../adni_wmh-vol.csv",
-                                  "adni_cog-latent.rds",
-                                  "adni_biomarkers-latent.rds"))
+fpaths <- list(
+  RDS = c(
+  "adni_hc-hvr",
+  "adni_dxs_imputed",
+  "adni_age_calculated",
+  "ucb_pet-amy",
+  "ucb_pet-tau",
+  "../adni_wmh-vol",
+  "adni_cog-latent",
+  "adni_biomarkers-latent"
+  ) |> sprintf(fmt = "data/rds/%s.rds") |> here(),
+  SRC = c(
+    "calc_hvr_adni",
+    "impute_dx",
+    "calculate_age_adni",
+    "parse_pet_adni",
+    "cfa-cog_adni",
+    "cfa-biomarkers_adni"
+  ) |> sprintf(fmt = "code/%s.R") |> here()
+)
 
 ## HCvol & HVR
-if (file.exists(fpaths[1])) {
-  hc_hvr.dt <- readRDS(fpaths[1])
+if (file.exists(fpaths[["RDS"]][1])) {
+  hc_hvr.dt <- fpaths[["RDS"]][1] |> readRDS()
 } else {
-  here("code/calc_hvr_adni.R") |> source()
+  fpaths[["SRC"]][1] |> source()
 }
 
 ## Imputed Dxs from ADNIMERGE
-if (file.exists(fpaths[2])) {
-  dx.dt     <- readRDS(fpaths[2])
+if (file.exists(fpaths[["RDS"]][2])) {
+  dx.dt     <- fpaths[["RDS"]][2] |> readRDS()
 } else {
-  here("code/impute_dx.R") |> source()
+  fpaths[["SRC"]][2] |> source()
 }
 
 ## AGE
 ## Calculated age using the date of MRI sessions
-if (file.exists(fpaths[3])) {
-  age.dt    <- readRDS(fpaths[3])
+if (file.exists(fpaths[["RDS"]][3])) {
+  age.dt    <- fpaths[["RDS"]][3] |> readRDS()
 } else {
-  here("code/calculate_age_adni.R") |> source()
+  fpaths[["SRC"]][3] |> source()
 }
 
 ## PET
-if (all(file.exists(fpaths[4:5]))) {
-  ucb_amy.dt <- readRDS(fpaths[4])
-  ucb_tau.dt <- readRDS(fpaths[5])
+if (all(file.exists(fpaths[["RDS"]][4:5]))) {
+  ucb_amy.dt <- fpaths[["RDS"]][4] |> readRDS()
+  ucb_tau.dt <- fpaths[["RDS"]][5] |> readRDS()
 } else {
-  here("code/parse_pet_adni.R") |> source()
+  fpaths[["SRC"]][4] |> source()
 }
 
 ## WMH
-if (!file.exists(fpaths[6])) {
+if (
+  fpaths[["RDS"]][6] |>
+    sub(pattern = "\\.rds", replacement = "\\.csv") |>
+    file.exists()
+) {
+  # TODO: Check that gsub works
+  wmh.dt <- fpaths[["RDS"]][6] |>
+    sub(pattern = "\\.rds", replacement = "\\.csv") |>
+    fread()
+} else {
   sprintf("File: %s is required but could not be found.", fpaths[6]) |> stop()
 }
-wmh.dt      <- fread(fpaths[6])
 
 ## Cognition
 # Latent variable obtained from ADASQ4, MMSE, CDRSB and validated with CFA
-if (file.exists(fpaths[7])) {
-  cog.dt    <- readRDS(fpaths[7])
+if (file.exists(fpaths[["RDS"]][7])) {
+  cog.dt    <- fpaths[["RDS"]][7] |> readRDS()
 } else {
-  here("code/cfa-cog_adni.R") |> source()
+  fpaths[["SRC"]][5] |> source()
 }
 
 ## Pathology
 # Latent variables obtained from UCBerkeley Amy, Tau PET and WMH vols
-if (file.exists(fpaths[8])) {
-  path.dt   <- readRDS(fpaths[8])
+if (file.exists(fpaths[["RDS"]][8])) {
+  path.dt   <- fpaths[["RDS"]][8] |> readRDS()
 } else {
-  here("code/cfa-biomarkers_adni.R") |> source()
+  fpaths[["SRC"]][6] |> source()
 }
 rm(fpaths)
 
@@ -81,33 +102,46 @@ rm(fpaths)
 ## PTGENDER & APOE4
 data(adnimerge)
 setDT(adnimerge)
-tiv.dt      <- adnimerge[!duplicated(PTID), .(SEX = PTGENDER, APOE4), PTID]
+tiv.dt <- adnimerge[!duplicated(PTID), .(SEX = PTGENDER, APOE4), PTID]
 
 
 ## Base Data.table
 # MERGE and average by side
-DT          <- tiv.dt[age.dt, on = "PTID"
-                      ][hc_hvr.dt, on = .(PTID, EXAMDATE)
-                      ][, .(HCv = mean(HCvol_adj), HVR = mean(HVR)),
-                      .(PTID, VISCODE, EXAMDATE, AGE, SEX, APOE4)
-                      ][wmh.dt, on = .(PTID, EXAMDATE)
-                      ][, -c("VISCODE")] |>
-na.omit() |>
-setkey(PTID)
+DT <- tiv.dt[
+  age.dt,
+  on = "PTID"
+][
+  hc_hvr.dt,
+  on = .(PTID, EXAMDATE)
+][
+  ,
+  .(HCv = mean(HCvol_adj), HVR = mean(HVR)),
+  .(PTID, VISCODE, EXAMDATE, AGE, SEX, APOE4)
+][
+  wmh.dt,
+  on = .(PTID, EXAMDATE)
+  -c("VISCODE")
+] |>
+  na.omit() |>
+  setkey(PTID)
 
 ### PET
 ## Amyloid of only subjects with MRI
-ab.dt       <- ucb_amy.dt[PTID %in% DT[!duplicated(PTID), PTID], c(1,3,7)] |>
-setnames("CENTILOIDS", "AMY")
+ab.dt <- ucb_amy.dt[PTID %in% DT[!duplicated(PTID), PTID], c(1,3,7)] |>
+  setnames("CENTILOIDS", "AMY")
 ab.dt[, EXAMDATE := DATE_AMY]
 
 ## DT with only earliest session
-#ab.early.dt <- ab.dt[, .SD[which.min(DATE_AMY)], PTID,
-                     #.SDcols = c("DATE_AMY", "AMY")]
+#ab.early.dt <- ab.dt[
+  #,
+  #.SD[which.min(DATE_AMY)],
+  #PTID,
+  #.SDcols = c("DATE_AMY", "AMY")
+#]
 
 ## Tau of subjects with MRI
-tau.dt      <- ucb_tau.dt[PTID %in% DT[!duplicated(PTID), PTID], c(1,3,7)] |>
-setnames("META_TEMPORAL_SUVR", "TAU")
+tau.dt <- ucb_tau.dt[PTID %in% DT[!duplicated(PTID), PTID], c(1,3,7)] |>
+  setnames("META_TEMPORAL_SUVR", "TAU")
 tau.dt[, EXAMDATE := DATE_TAU]
 
 ## DTs with earliest and latest
@@ -128,11 +162,11 @@ tau.dt[, EXAMDATE := DATE_TAU]
 #csf.dt[PTAU_csf %like% ">|<", PTAU_csf := stringr::str_remove(PTAU_csf, ">|<")]
 #csf.dt[, (csf.cols) := lapply(.SD, as.numeric), .SDcols = csf.cols]
 
-DT_p        <- ab.dt[DT, on = .(PTID, EXAMDATE), roll = T]
-DT_p        <- tau.dt[DT_p, on = .(PTID, EXAMDATE), roll = T] |>
-na.omit() |>
-setcolorder(c("DATE_AMY", "DATE_TAU"), after = "EXAMDATE") |>
-setcolorder(c("AMY", "TAU"), after = "WMHvol")
+DT_p <- ab.dt[DT, on = .(PTID, EXAMDATE), roll = T]
+DT_p <- tau.dt[DT_p, on = .(PTID, EXAMDATE), roll = T] |>
+  na.omit() |>
+  setcolorder(c("DATE_AMY", "DATE_TAU"), after = "EXAMDATE") |>
+  setcolorder(c("AMY", "TAU"), after = "WMHvol")
 
 #rm(tiv.dt, hc_hvr.dt, wmh.dt, ucb_amy.dt, ucb_tau.dt)
 
@@ -144,55 +178,78 @@ DT_p[, DATE_AMY := EXAMDATE - DATE_AMY]
 DT_p[, DATE_TAU := EXAMDATE - DATE_TAU]
 setnames(DT_p, c("DATE_AMY", "DATE_TAU"), c("AMY.diff", "TAU.diff"))
 #DT_p[, DX := factor(DX, levels = c("CN", "MCI", "Dementia"))]
-DT_p        <- DTclean(DT_p, scalevars = names(DT_p)[8:12],
-                       ordervars = "APOE4", centervars = "AGE")
+DT_p <- DTclean(
+  DT_p,
+  scalevars = names(DT_p)[8:12],
+  ordervars = "APOE4",
+  centervars = "AGE"
+)
 
 # Get only AGE.c at baseline
-DT_p        <- DT_p[.(1), on = "VIS", .(PTID, AGE.bl.c = AGE.c)
-                  ][DT_p, on = "PTID"
-                  ] |> setcolorder("AGE.bl.c", after = "AGE.bl")
+DT_p <- DT_p[
+  .(1),
+  on = "VIS",
+  .(PTID, AGE.bl.c = AGE.c)
+][
+  DT_p,
+  on = "PTID"
+] |> setcolorder("AGE.bl.c", after = "AGE.bl")
 
 # Melting
-DT_lp       <- DT_p |>
-melt(measure = patterns("^H(Cv|VR).scl$"),
-     variable.name = "HC", value.name = "VAL")
+DT_lp <- melt(
+  DT_p,
+  measure = patterns("^H(Cv|VR).scl$"),
+  variable.name = "HC",
+  value.name = "VAL"
+)
 hcvars      <- DT_lp[, levels(HC)]
 
 ## Rename vars/covars for easier formatting:
-vars        <- c("VAL", "TIME", "SEX", "APOE4", "AGE.bl.c", "WMHvol.scl",
-                 "AMY.scl",  "AMY.diff", "VIS", "PTID")
-vars_short  <- c("Y", "T", "S", "A4", "A", "W",
-                 "P", "Pt", "I", "ID")
+vars <- c(
+  "VAL", "TIME", "SEX", "APOE4", "AGE.bl.c",
+  "WMHvol.scl", "AMY.scl", "AMY.diff", "VIS", "PTID"
+)
+
+vars_short <- c(
+  "Y", "T", "S", "A4", "A", "W", "P", "Pt", "I", "ID"
+)
+
 setnames(DT_lp, vars, vars_short)
 
 
 ### MLM with lmer
 ## Extend HCv / HVR models with pathology
 ## Params and model definitions
-f1          <- build_formulas("Y", c("T", "S", "A4", "W", "A", "P", "Pt"),
-                              notinteractionvars = c("A", "Pt"),
-                              quadraticvars = "T",
-                              quadratic_interactions = T,
-                              random_effects = "intercepts",
-                              skip_items = c(4,6,11,14,15,17))
+f1 <- build_formulas(
+  "Y",
+  c("T", "S", "A4", "W", "A", "P", "Pt"),
+  notinteractionvars = c("A", "Pt"),
+  quadraticvars = "T",
+  quadratic_interactions = T,
+  random_effects = "intercepts",
+  skip_items = c(4,6,11,14,15,17)
+)
 
 ### Fits
 fpath <- here("data/rds/adni_mlm-pet-amyloid.rds")
 if (!file.exists(fpath) | ReFitModels) {
 #if (TRUE) {
-  fits1         <- vector("list", 2)
-  names(fits1)  <- hcvars
+  fits1 <- vector("list", 2)
+  names(fits1) <- hcvars
   for (i in 1:2) {
-    fits1[[i]]  <- vector("list", length(f1))
+    fits1[[i]] <- vector("list", length(f1))
     for (j in seq_along(f1)) {
-      fits1[[i]][[j]] <- lmer(as.formula(f1[j]),
-                             DT_lp[hcvars[i], on = "HC"], REML = F,
-                             control = lmerControl(optimizer = "bobyqa"))
+      fits1[[i]][[j]] <- lmer(
+        as.formula(f1[j]),
+        DT_lp[hcvars[i], on = "HC"],
+        REML = F,
+        control = lmerControl(optimizer = "bobyqa")
+      )
     }
   }
   saveRDS(fits1, fpath)
 } else {
-  fits1         <- readRDS(fpath)
+  fits1 <- readRDS(fpath)
 }
 
 #### LRT
@@ -227,32 +284,41 @@ str_replace_all("(^[^:]*)\\(M\\)", "\\1 (Male)")
           #covariate.labels = covs_labels)
 
 
-f2          <- build_formulas("Y", c("T", "S", "A4", "W", "A", "P", "Pt"),
-                              notinteractionvars = c("A", "Pt"),
-                              quadraticvars = "T",
-                              quadratic_interactions = T,
-                              random_effects = "intercepts",
-                              skip_items = c(4,6,9,10,12:15,17))
+f2 <- build_formulas(
+  "Y",
+  c("T", "S", "A4", "W", "A", "P", "Pt"),
+  notinteractionvars = c("A", "Pt"),
+  quadraticvars = "T",
+  quadratic_interactions = T,
+  random_effects = "intercepts",
+  skip_items = c(4,6,9,10,12:15,17)
+)
 
 ## Tau PET
-setnames(DT_lp, c("P", "Pt", "TAU.scl", "TAU.diff"),
-         c("AMY.scl", "AMY.diff", "P", "Pt"))
+setnames(
+  DT_lp,
+  c("P", "Pt", "TAU.scl", "TAU.diff"),
+  c("AMY.scl", "AMY.diff", "P", "Pt")
+)
 
 fpath <- here("data/rds/adni_mlm-pet-tau.rds")
 if (!file.exists(fpath) | ReFitModels) {
-  fits2         <- vector("list", 2)
-  names(fits2)  <- hcvars
+  fits2 <- vector("list", 2)
+  names(fits2) <- hcvars
   for (i in 1:2) {
-    fits2[[i]]  <- vector("list", length(f2))
+    fits2[[i]] <- vector("list", length(f2))
     for (j in seq_along(f2)) {
-      fits2[[i]][[j]] <- lmer(as.formula(f2[j]),
-                             DT_lp[hcvars[i], on = "HC"], REML = F,
-                             control = lmerControl(optimizer = "bobyqa"))
+      fits2[[i]][[j]] <- lmer(
+        as.formula(f2[j]),
+        DT_lp[hcvars[i], on = "HC"],
+        REML = F,
+        control = lmerControl(optimizer = "bobyqa")
+      )
     }
   }
   saveRDS(fits2, fpath)
 } else {
-  fits2         <- readRDS(fpath)
+  fits2 <- readRDS(fpath)
 }
 
 ### LRT
@@ -286,27 +352,36 @@ str_replace_all("(^[^:]*)\\(M\\)", "\\1 (Male)")
           #covariate.labels = covs_labels)
 
 # Both Tau & AMY
-setnames(DT_lp, c("P", "Pt", "AMY.scl", "AMY.diff"),
-         c("Ptau", "Pt1", "Pamy", "Pt2"))
+setnames(
+  DT_lp,
+  c("P", "Pt", "AMY.scl", "AMY.diff"),
+  c("Ptau", "Pt1", "Pamy", "Pt2")
+)
 
 ## Formula is manual
 #Y ~
-f3 <- paste0("Y ~ T+S+A4+W+A+Ptau+Pamy+Pt1+Pt2+I(T^2)",
-             "+T:S+T:A4+T:Pamy+T:Ptau+S:W+S:Pamy+S:Ptau+A4:Pamy+W:Ptau",
-             "+I(T^2):S+I(T^2):A4+I(T^2):Pamy+I(T^2):Ptau+(1|ID)")
+f3 <- paste0(
+  "Y ~ T+S+A4+W+A+Ptau+Pamy+Pt1+Pt2+I(T^2)",
+  "+T:S+T:A4+T:Pamy+T:Ptau+S:W+S:Pamy+S:Ptau+A4:Pamy+W:Ptau",
+  "+I(T^2):S+I(T^2):A4+I(T^2):Pamy+I(T^2):Ptau+(1|ID)"
+)
+
 fpath <- here("data/rds/adni_mlm-pet.rds")
 if (!file.exists(fpath) | ReFitModels) {
-  fits3         <- vector("list", 2)
-  names(fits3)  <- hcvars
+  fits3 <- vector("list", 2)
+  names(fits3) <- hcvars
   for (i in 1:2) {
-    fits3[[i]]  <- vector("list", length(f3))
-    fits3[[i]]  <- lmer(as.formula(f3),
-                        DT_lp[hcvars[i], on = "HC"], REML = F,
-                        control = lmerControl(optimizer = "bobyqa"))
+    fits3[[i]] <- vector("list", length(f3))
+    fits3[[i]] <- lmer(
+      as.formula(f3),
+      DT_lp[hcvars[i], on = "HC"],
+      REML = F,
+      control = lmerControl(optimizer = "bobyqa")
+    )
   }
   saveRDS(fits3, fpath)
 } else {
-  fits3         <- readRDS(fpath)
+  fits3 <- readRDS(fpath)
 }
 
 pred_labels <- c("HC volume", "HVR")
@@ -336,8 +411,8 @@ str_replace_all("^([^:]*)\\(M\\)(?!:)", "\\1 (Male)")
 
 
 ## Predict COGNITION
-cog.dt      <- cog.dt[, .(COG_latent, DATE_cog = EXAMDATE),
-                      .(PTID, EXAMDATE)] |> unique()
+cog.dt <- cog.dt[, .(COG_latent, DATE_cog = EXAMDATE), .(PTID, EXAMDATE)] |>
+  unique()
 
 #DT_c        <-
 #DT_c        <- age.dt[cog.dt, on = .(PTID, VISCODE), .(PTID, AGE, COG_latent)

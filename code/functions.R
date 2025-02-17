@@ -4,11 +4,18 @@ library(data.table)
 
 ### FUNCTIONS
 ## Data CLEANING
-DTclean     <- function(DT, scalevars = NULL, ordervars = NULL,
-                        centervars = NULL, time_from_age = T,
-                        scale_baseline = T, reference_controls = FALSE,
-                        ref_column = "DX", ref_label = "CN",
-                        center_baseline = T) {
+DTclean     <- function(
+  DT,
+  scalevars = NULL,
+  ordervars = NULL,
+  centervars = NULL,
+  time_from_age = T,
+  scale_baseline = T,
+  reference_controls = FALSE,
+  ref_column = "DX",
+  ref_label = "CN",
+  center_baseline = T
+) {
   if (time_from_age) {
     DTw <- copy(DT)
     DTw[, c("AGE.bl", "TIME") := NULL] |> suppressWarnings()
@@ -17,20 +24,32 @@ DTclean     <- function(DT, scalevars = NULL, ordervars = NULL,
     DTw <- DTw[DTw[.(1), on = "VIS", .(AGE.bl = AGE), "PTID"], on = "PTID"]
     DTw[, TIME := AGE - AGE.bl]
     setcolorder(DTw, c("AGE.bl", "TIME"), before = "AGE")
-  } else {scale_baseline <- center_baseline <- FALSE}
+  } else {
+    scale_baseline <- center_baseline <- FALSE
+  }
   if (!is.null(ordervars)) {
     DTw[, (ordervars) := lapply(.SD, as.ordered), .SDcols = ordervars]
   }
   if (!is.null(centervars)) {
     if (center_baseline) {
-      DTp <- DTw[.(1), on = "VIS",
-                 lapply(.SD, mean, na.rm = T),
-                 .SDcols = centervars]
-      DTw[, (paste0(centervars, ".c")) :=
-          lapply(centervars, \(x) {(get(x) - DTp[[x]][1])})]
+      DTp <- DTw[
+        .(1),
+        on = "VIS",
+        lapply(.SD, mean, na.rm = T),
+        .SDcols = centervars
+      ]
+      DTw[
+        ,
+        (paste0(centervars, ".c")) := lapply(
+          centervars, \(x) {(get(x) - DTp[[x]][1])}
+        )
+      ]
     } else {
-    DTw[, (paste0(centervars, ".c")) := lapply(.SD, scale, scale = F),
-        .SDcols = centervars]
+      DTw[
+        ,
+        (paste0(centervars, ".c")) := lapply( .SD, scale, scale = F),
+        .SDcols = centervars
+      ]
     }
   }
   if (!is.null(scalevars)) {
@@ -40,30 +59,50 @@ DTclean     <- function(DT, scalevars = NULL, ordervars = NULL,
     #browser()
     DTr <- if (scale_baseline) DTw[.(1), on = "VIS"] else DTw
     DTr <- if (reference_controls) DTr[get(ref_column) == ref_label] else DTr
-    DTp <- rbind(DTr[, lapply(.SD, mean, na.rm = TRUE), .SDcols = scalevars],
-                 DTr[, lapply(.SD, sd, na.rm = TRUE), .SDcols = scalevars])
-    DTw[, (paste0(scalevars, ".scl")) :=
-        lapply(scalevars, \(x) {(get(x) - DTp[[x]][1]) / DTp[[x]][2]})]
+    DTp <- rbind(
+      DTr[, lapply(.SD, mean, na.rm = TRUE), .SDcols = scalevars],
+      DTr[, lapply(.SD, sd, na.rm = TRUE), .SDcols = scalevars]
+    )
+    DTw[
+      ,
+      (paste0(scalevars, ".scl")) := lapply(
+        scalevars, \(x) {(get(x) - DTp[[x]][1]) / DTp[[x]][2]}
+      )
+    ]
   }
   return(DTw)
 }
 
 ## Bring back from Z scores
-DTunscale <- function(DT, scalevars, origs,
-                      scale_baseline = TRUE, replace = TRUE, newnames = NULL,
-                      visit.col = "ID") {
+DTunscale <- function(
+  DT,
+  scalevars,
+  origs,
+  scale_baseline = TRUE,
+  replace = TRUE,
+  newnames = NULL,
+  visit.col = "ID"
+) {
   DTw <- copy(DT)
   if (scale_baseline) {
-    DTp <- rbind(DTw[.(1), on = visit.col, lapply(.SD, mean), .SDcols = origs],
-                 DTw[.(1), on = visit.col, lapply(.SD, sd), .SDcols = origs])
+    DTp <- rbind(
+      DTw[.(1), on = visit.col, lapply(.SD, mean), .SDcols = origs],
+      DTw[.(1), on = visit.col, lapply(.SD, sd), .SDcols = origs]
+    )
   } else {
-    DTp <- rbind(DTw[, lapply(.SD, mean), .SDcols = origs],
-                 DTw[, lapply(.SD, sd), .SDcols = origs])
+    DTp <- rbind(
+      DTw[, lapply(.SD, mean), .SDcols = origs],
+      DTw[, lapply(.SD, sd), .SDcols = origs]
+    )
   }
   setnames(DTp, scalevars)
   if (replace) {
-    DTw[, (scalevars) :=
-        lapply(scalevars, \(x) {(get(x) * DTp[[x]][2]) + DTp[[x]][1]})]
+    DTw[
+      ,
+      (scalevars) := lapply(
+        scalevars, \(x) {(get(x) * DTp[[x]][2]) + DTp[[x]][1]}
+      )
+    ]
   } else {
     newnames <- if (!is.null(newnames)) {
       newnames
@@ -72,26 +111,40 @@ DTunscale <- function(DT, scalevars, origs,
     } else {
       paste0(scalevars, ".uscl")
     }
-    DTw[, (newnames) :=
-        lapply(scalevars, \(x) {(get(x) * DTp[[x]][2]) + DTp[[x]][1]})]
+    DTw[
+      ,
+      (newnames) := lapply(
+        scalevars, \(x) {(get(x) * DTp[[x]][2]) + DTp[[x]][1]}
+      )
+    ]
   }
 }
+
 ## build regression FORMULAS
-build_formulas <- function(Y, X,
-                           interactionvars = NULL, notinteractionvars = NULL,
-                           random_effects = c("none", "intercepts", "slopes"),
-                           id = NULL, slopevars = NULL,
-                           itervars = NULL, quadraticvars = NULL,
-                           quadratic_interactions = FALSE,
-                           skip_items = NULL) {
+build_formulas <- function(
+  Y,
+  X,
+  interactionvars = NULL,
+  notinteractionvars = NULL,
+  random_effects = c("none", "intercepts", "slopes"),
+  id = NULL,
+  slopevars = NULL,
+  itervars = NULL,
+  quadraticvars = NULL,
+  quadratic_interactions = FALSE,
+  skip_items = NULL
+) {
   # Quadratic terms
   if (is.null(quadraticvars)) {
     quadratic_interactions <- FALSE
   } else {
     quad_terms <- sprintf("I(%s^2)", quadraticvars)
     if (quadratic_interactions) {
-      quad_inters <- lapply(quad_terms, paste,
-                            X[!X %in% quadraticvars], sep = ":") |> unlist()
+      quad_inters <- lapply(
+        quad_terms, paste,
+        X[!X %in% quadraticvars],
+        sep = ":"
+      ) |> unlist()
     }
   }
 
@@ -128,9 +181,10 @@ build_formulas <- function(Y, X,
       inter_terms <- terms[i]
     } else {
       idx <- length(inter_terms)
-      inter_terms <- c(inter_terms,
-                       paste(inter_terms[length(inter_terms)],
-                             terms[i], sep = "+"))
+      inter_terms <- c(
+        inter_terms,
+        paste(inter_terms[length(inter_terms)], terms[i], sep = "+")
+      )
     }
   }
 
