@@ -9,116 +9,118 @@ library(lavaanPlot)
 print_plots <- TRUE
 
 # Load baseline data
-fpath       <- here("data/rds/triad.rds")
+fpath <- here("data/rds/triad.rds")
 if (file.exists(fpath)) {
-  triad.dt  <- readRDS(fpath)
+  triad.dt <- readRDS(fpath)
 } else {
   here("code/demographics.R") |> source()
 }
+rm(fpath)
 
 ## Mediation analysis: Imaging
 # Keep only subjects with full imaging
 # Remove youth and AD
-triad.dt    <- triad.dt[
+triad.dt <- triad.dt[
   !is.na(AMYLOID)
 ][
   !is.na(TAU_braak1)
 ][
-  !DX_clean %in% c("Young", "Other", "AD")
-]
-
-## Cleaning
-triad.dt[
-  ,
-  let(
-    # Convert Sex to dummy variable
-    SEX_n = as.numeric(SEX) - 1,
-    DX = factor(DX, levels = c("CN", "MCI")),
+  !DX_clean %in% c("Young", "Other", "AD"),
+  .(
+    ## Subj ID
+    PTID,
+    ### Group
+    #DX = factor(DX, levels = c("CN", "MCI")),
+    ## Exogenous variable
+    AMYLOID,
+    ## Endogenous variables
+    TAU = rowSums(.SD), # Sum Braak Stages
     # 1 - HVR (average for both sides)
-    HVR_lr = 1 - HVR_l,
-    HVR_rr = 1 - HVR_r,
-    HVR_mean_inv = 1 - (HVR_l + HVR_r) / 2,
-    # Sum Braak Stages
-    TAU = rowSums(.SD)
+    HVR_inv = 1 - (HVR_l + HVR_r) / 2,
+    MOCA = MOCA_score,
+    ## Covariates
+    AGE = AGE_scan,
+    EDUC,
+    # Convert Sex to dummy variable
+    SEX = as.numeric(SEX) - 1,  ## M: 1 & F: 0
+    # APOE status (N of alleles)
+    APOE_n,
+    ## Sex & APOE4 moderation
+    SEX_APOE = APOE_n * (as.numeric(SEX) - 1)
   ),
   .SDcols = TAU_braak1:TAU_braak6
 ]
 
 ## Labels:
-labels.lst  <- list(
-  COV = c(AGE_scan = "Age", SEX_n = "Sex", APOE_n = "APOE4"),
-  HCV = c(HCv_l = "Left", HCv_r = "Right"),
-  HVR = c(
-    HVR = "HC-atrophy",
-    HVR_lr = "1-HVR (Left)",
-    HVR_rr = "1-HVR (Right)"
-  ),
-  TAU = c(
-    TAU_braak1 = "Braak1",
-    TAU_braak2 = "Braak2",
-    TAU_braak3 = "Braak3",
-    TAU_braak4 = "Braak4",
-    TAU_braak5 = "Braak5",
-    TAU_braak6 = "Braak6"
-  ),
-  HVR2 = c(HVR_mean_inv = "HC-atrophy"),
-  MOCA = c(MOCA_score = "MoCA"),
-  MEM = c(
-    RAVLT_rep = "RAVLT (rep)",
-    RAVLT_intro = "RAVLT (intro)",
-    RAVLT_raw = "RAVLT (raw)")
+labels.v <- c(
+  AGE_scan = "Age",
+  SEX = "Sex",
+  APOE_n = "APOE4",
+  EDUC = "Education",
+  SEX_APOE = "SxA4",
+  HVR_inv = "HC-atrophy",
+  MOCA = "MoCA"
 )
 
 
+### Original AAIC model
 ## AMYLOID -> TAU (sum) -> 1-HVR_mean -> COG
-serial7.mod <- '
-  # Regressions
-  AMYLOID ~ SEX_n + AGE_scan + APOE_n
-  TAU ~ a * AMYLOID + SEX_n + AGE_scan + APOE_n
-  HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan + APOE_n
-  MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + APOE_n + EDUC
-  # Direct effect
+mod_orig.lst <- list()
+mod_orig.lst[["MODEL"]] <- '
+  # Regression equations for serial moderation
+  AMYLOID ~ c1*AGE + c2*SEX + c3*APOE_n
+
+  TAU ~ a*AMYLOID + t1*AGE + t2*SEX + t3*APOE_n
+
+  HVR_inv ~ b*AMYLOID + c*TAU + h1*AGE + h2*SEX + h3*APOE_n
+
+  MOCA ~ d*AMYLOID + e*TAU + f*HVR_inv + m1*AGE + m2*EDUC + m3*SEX
+
+  # Total effect: direct, simple indirect, and serial effects
+  Total := d + (a*e) + (b*f) + (a*c*f)
+
+  # Direct effect of Amyloid on MoCA
   deAMY := d
-  # Indirect effects
-  ieTAU := a * e
-  ieHVR := b * f
-  SerialMed := a * c * f
-  # Total effect
-  Total := deAMY + ieTAU + ieHVR + SerialMed
-  # Proportions
   propAMY := deAMY / Total
+
+  # Indirect effect via TAU only
+  ieTAU := a * e
   propTAU := ieTAU / Total
+
+  # Indirect effect via HVR only
+  ieHVR := b * f
   propHVR := ieHVR / Total
-  propSerial := SerialMed / Total
+
+  # Serial mediation Amyloid -> Tau -> HVR -> MoCA
+  ieSerial := a * c * f
+  propSerial := ieSerial / Total
+
+  # Combined indirect effect
+  ieTotal := (a*e) + (b*f) + (a*c*f)
+  propTotal := ieTotal/Total
 '
 
 fname <- here('data/rds/mediation_aaic2025.rds')
 if (file.exists(fname)) {
-  serial7.fit <- readRDS(fname)
+  mod_orig.lst[["FIT"]] <- readRDS(fname)
 } else {
-  serial7.fit <- sem(
-    serial7.mod,
-    data = triad_cog.dt,
+  mod_orig.lst[["FIT"]] <- sem(
+    mod_orig.lst[["MODEL"]],
+    data = triad.dt,
+    cluster = "PTID",
     estimator = "ML",
-    se = "bootstrap",
-    bootstrap = 10000
+    se = "robust.cluster",
+    bootstrap = 2000
   )
-  saveRDS(serial7.fit, fname)
+  saveRDS(mod_orig.lst[["FIT"]], fname)
 }
 
 rm(fname)
 
 if (print_plots) {
-  ## TODO: Change to labels.lst
-  labels      <- c(
-    labels.lst[["COV"]],
-    labels.lst[["HVR2"]],
-    labels.lst[["MOCA"]]
-  )
-
-  p_ser7      <- lavaanPlot2(
-    model = serial7.fit,
-    labels = labels,
+  mod_orig.lst[["PLOT"]] <- lavaanPlot2(
+    model = mod_orig.lst[["FIT"]],
+    labels = labels.v,
     graph_options = list(rankdir = "LR"),
     node_options = list(shape = "box"),
     edge_options = list(color = "grey"),
@@ -127,62 +129,79 @@ if (print_plots) {
     stars = "regress"
   )
 
-  here("data/derivatives/med_aaic2025.pdf") |> embed_plot_pdf(plot = p_ser7)
+  here("data/derivatives/med_aaic2025.pdf") |>
+    embed_plot_pdf(plot = mod_orig.lst[["PLOT"]])
 }
 
-### AMYLOID -> TAU (sum) -> 1-HVR_mean -> COG
-#serial7.mod <- '
-  ## Regressions
-  #AMYLOID ~ SEX_n + AGE_scan + APOE_n
-  #TAU ~ a * AMYLOID + SEX_n + AGE_scan + APOE_n
-  #HVR_mean_inv ~ b * AMYLOID + c * TAU + SEX_n + AGE_scan + APOE_n
-  #MOCA_score ~ d * AMYLOID + e * TAU + f * HVR_mean_inv + SEX_n + AGE_scan + APOE_n + EDUC
-  ## Direct effect
-  #deAMY := d
-  #propAMY := deAMY / Total
-  ## Indirect effects
-  #ieTAU := a * e
-  #propTAU := ieTAU / Total
-  #ieHVR := b * f
-  #propHVR := ieHVR / Total
-  #SerialMed := a * c * f
-  #propSerial := SerialMed / Total
-  ## Total effect
-  #Total := deAMY + ieTAU + ieHVR + SerialMed
-#'
+### Updated model with moderation
+## AMYLOID -> TAU (sum) -> 1-HVR_mean -> COG
+mod.lst <- list()
+mod.lst[["MODEL"]] <- '
+  # Regression equations for serial moderation
+  AMYLOID ~ c1*AGE + c2*SEX + c3*APOE_n + c4*SEX_APOE
 
-#fname <- here('data/rds/mediation_serial7.rds')
-#if (file.exists(fname)) {
-  #serial7.fit <- readRDS(fname)
-#} else {
-  #serial7.fit <- sem(
-    #serial7.mod,
-    #data = triad_cog.dt,
-    #estimator = "ML",
-    #se = "bootstrap",
-    #bootstrap = 10000
-  #)
-  #saveRDS(serial7.fit, fname)
-#}
-#rm(fname)
-#if (print_plots) {
-  ### TODO: Change to labels.lst
-  #labels      <- c(
-    #labels.lst[["COV"]],
-    #labels.lst[["HVR2"]],
-    #labels.lst[["MOCA"]]
-  #)
+  TAU ~ a*AMYLOID +
+    t1*AGE + t2*SEX + t3*APOE_n + t4*SEX_APOE
 
-  #p_ser7      <- lavaanPlot2(
-    #model = serial7.fit,
-    #labels = labels,
-    #graph_options = list(rankdir = "LR"),
-    #node_options = list(shape = "box"),
-    #edge_options = list(color = "grey"),
-    #coef_labels = T,
-    #stand = T,
-    #stars = "regress"
-  #)
+  HVR_inv ~ b*AMYLOID + c*TAU +
+    h1*AGE + h2*SEX + h3*APOE_n + h4*SEX_APOE
 
-  #here("data/derivatives/serial7.pdf") |> embed_plot_pdf(plot = p_ser7)
-#}
+  MOCA ~ d*AMYLOID + e*TAU + f*HVR_inv +
+    m1*AGE + m2*EDUC + m3*SEX
+
+  # Total effect: direct, simple indirect, and serial effects
+  Total := d + (a*e) + (b*f) + (a*c*f)
+
+  # Direct effect of Amyloid on MoCA
+  deAMY := d
+  propAMY := deAMY / Total
+
+  # Indirect effect via TAU only
+  ieTAU := a * e
+  propTAU := ieTAU / Total
+
+  # Indirect effect via HVR only
+  ieHVR := b * f
+  propHVR := ieHVR / Total
+
+  # Serial mediation Amyloid -> Tau -> HVR -> MoCA
+  ieSerial := a * c * f
+  propSerial := ieSerial / Total
+
+  # Combined indirect effect
+  ieTotal := (a*e) + (b*f) + (a*c*f)
+  propTotal := ieTotal/Total
+'
+
+fname <- here('data/rds/mediation_aaic2025_moderation.rds')
+if (file.exists(fname)) {
+  mod.lst[["FIT"]] <- readRDS(fname)
+} else {
+  mod.lst[["FIT"]] <- sem(
+    mod.lst[["MODEL"]],
+    data = triad.dt,
+    cluster = "PTID",
+    estimator = "ML",
+    se = "robust.cluster",
+    bootstrap = 2000
+  )
+  saveRDS(mod.lst[["FIT"]], fname)
+}
+
+rm(fname)
+
+if (print_plots) {
+  mod.lst[["PLOT"]] <- lavaanPlot2(
+    model = mod.lst[["FIT"]],
+    labels = labels.v,
+    graph_options = list(rankdir = "LR"),
+    node_options = list(shape = "box"),
+    edge_options = list(color = "grey"),
+    coef_labels = T,
+    stand = T,
+    stars = "regress"
+  )
+
+  here("data/derivatives/med_aaic2025_moderation.pdf") |>
+    embed_plot_pdf(plot = mod.lst[["PLOT"]])
+}
