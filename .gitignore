@@ -1,5 +1,14 @@
 data/
 code/py_deep_seg
+code/darq
 ohbm/
+aaic/
 libraries/
 plots/
+export/
+lists/
+tables/
+*.xfm
+.nvimcomlib
+.README_nvim_rem
+.Renviron
