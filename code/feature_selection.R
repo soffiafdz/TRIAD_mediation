@@ -11,7 +11,7 @@ library(cluster)
 
 ## Redo algorithm
 reselect_rois   <- TRUE
-recluster       <- FALSE
+recluster       <- TRUE
 
 ## Load data
 # baseline data
@@ -32,32 +32,43 @@ if (file.exists(fpath)) {
 
 ## Data Cleaning
 # Filter
-triad.dt        <- triad.dt[!is.na(MOCA_score) &
-                            !DX_clean %in% c("Young", "Other", "AD"),
-                            #!DX_clean %in% c("Young", "Other"),
-                            .(PTID, VISIT, MOCA_score)]
+triad.dt        <- triad.dt[
+  !is.na(MOCA_score)
+][
+  !DX_clean %in% c("Young", "Other", "AD"),
+  #!DX_clean %in% c("Young", "Other"),
+  .(PTID, VISIT, MOCA_score)
+]
 
 # Cerebra dictionary
 # Use the right-side label
 dict_roi        <- unique(cerebra.dt[, .(LABEL_id, LABEL_name, SIDE)])
 
 # Amyloid
-amy.dt          <- cerebra.dt[!is.na(AMYLOID_norm),
-                                  .(PTID, VISIT,
-                                    ROI = sprintf("AMY_%03i", LABEL_id),
-                                    #AMYLOID = log(AMYLOID_norm / VOL))] |>
-                                    AMYLOID = AMYLOID_norm / VOL)] |>
+amy.dt          <- cerebra.dt[
+  !is.na(AMYLOID_norm),
+  .(
+    PTID,
+    VISIT,
+    ROI = sprintf("AMY_%03i", LABEL_id),
+    #AMYLOID = log(AMYLOID_norm / VOL))] |>
+    AMYLOID = AMYLOID_norm / VOL)
+] |>
   dcast(... ~ ROI, value.var = "AMYLOID")
 
 amy.dt          <- amy.dt[triad.dt, on = .(PTID, VISIT)]
 amy.dt          <- amy.dt[complete.cases(amy.dt)]
 
 # Tau
-tau.dt          <- cerebra.dt[!is.na(TAU_norm),
-                                  .(PTID, VISIT,
-                                    ROI = sprintf("TAU_%03i", LABEL_id),
-                                    #TAU = log(TAU_norm / VOL))] |>
-                                    TAU = TAU_norm / VOL)] |>
+tau.dt          <- cerebra.dt[
+  !is.na(TAU_norm),
+  .(
+    PTID,
+    VISIT,
+    ROI = sprintf("TAU_%03i", LABEL_id),
+    #TAU = log(TAU_norm / VOL))] |>
+    TAU = TAU_norm / VOL)
+] |>
   dcast(... ~ ROI, value.var = "TAU")
 
 tau.dt          <- tau.dt[triad.dt, on = .(PTID, VISIT)]
@@ -74,12 +85,11 @@ if (reselect_rois) {
 
   cerebra_rois  <- str_subset(names(amy.dt), "AMY")
 
-  rois_amy.dt   <- Boruta(amy.dt[, ..cerebra_rois],
-                      amy.dt[, MOCA_score]) |>
-    #TentativeRoughFix() |>
-    #getSelectedAttributes()
-    attStats() |>
-    as.data.table(keep.rownames = "id")
+  rois_amy.dt   <- Boruta(amy.dt[, ..cerebra_rois], amy.dt[, MOCA_score]) |>
+  #TentativeRoughFix() |>
+  #getSelectedAttributes()
+  attStats() |>
+  as.data.table(keep.rownames = "id")
 } else {
   rois_amy.dt   <- read_rds(fpath)
 }
@@ -93,15 +103,15 @@ if (reselect_rois | recluster) {
   names(amy_scaled.dt) <- str_remove(names(amy_scaled.dt), ".{3}$")
 
   # Only selected ROIs from Boruta
-  rois_amy        <- rois_amy.dt[decision == "Confirmed", id]
+  rois_amy        <- rois_amy.dt["Confirmed", on = "decision", id]
   amy_rois_scl.dt <- amy_scaled.dt[, ..rois_amy]
 
   set.seed(42)
   clusters_amy    <- kmeans(transpose(amy_rois_scl.dt), centers = K)
-  rois_amy.dt[decision == "Confirmed", cluster := clusters_amy$cluster]
+  rois_amy.dt["Confirmed", on = "decision", cluster := clusters_amy$cluster]
 }
 
-if (reselect_rois | recluster) write_rds(rois_amy.dt, fpath)
+if (reselect_rois | recluster) saveRDS(rois_amy.dt, fpath)
 rm(fpath)
 
 # Tau (all subjects)
@@ -120,7 +130,7 @@ if (reselect_rois) {
     attStats() |>
     as.data.table(keep.rownames = "id")
 
-  write_rds(rois_tau.dt, fpath)
+  saveRDS(rois_tau.dt, fpath)
 } else {
   rois_tau.dt   <- read_rds(fpath)
 }
@@ -134,39 +144,42 @@ if (reselect_rois | recluster) {
   names(tau_scaled.dt) <- str_remove(names(tau_scaled.dt), ".{3}$")
 
   # Only selected ROIs from Boruta
-  rois_tau        <- rois_tau.dt[decision == "Confirmed", id]
+  rois_tau        <- rois_tau.dt["Confirmed", on = "decision", id]
   tau_rois_scl.dt <- tau_scaled.dt[, ..rois_tau]
 
   set.seed(42)
   clusters_tau    <- kmeans(transpose(tau_rois_scl.dt), centers = K)
-  rois_tau.dt[decision == "Confirmed", cluster := clusters_tau$cluster]
+  rois_tau.dt["Confirmed", on = "decision", cluster := clusters_tau$cluster]
 }
 
-if (reselect_rois | recluster) write_rds(rois_tau.dt, fpath)
+if (reselect_rois | recluster) saveRDS(rois_tau.dt, fpath)
 rm(fpath)
 
 # Find selected ROIs that are present on both Amy and Tau lists
 if (reselect_rois) {
   # In ANY list
-  rois_amy_tau_a  <- c(rois_amy.dt[decision == "Confirmed",
-                                   str_extract(id, "\\d{3}")],
-                       rois_tau.dt[decision == "Confirmed",
-                                   str_extract(id, "\\d{3}")]) |>
-  unique() |> as.numeric()
+  rois_amy_tau_a  <- c(
+  rois_amy.dt["Confirmed", on = "decision", str_extract(id, "\\d{3}")],
+  rois_tau.dt["Confirmed", on = "decision", str_extract(id, "\\d{3}")]
+) |> unique() |> as.numeric()
 
   # In BOTH lists
-  rois_amy_tau_b  <- rois_amy.dt[decision == "Confirmed",
-                                 .(str_extract(id, "\\d{3}"))
-                                 ][rois_tau.dt[decision == "Confirmed",
-                                               .(str_extract(id, "\\d{3}"))],
-                                 on = "V1", nomatch = 0, as.numeric(V1)]
+  rois_amy_tau_b  <- rois_amy.dt[
+  "Confirmed",
+  on = "decision",
+  .(str_extract(id, "\\d{3}"))
+][
+  rois_tau.dt["Confirmed", on = "decision", .(str_extract(id, "\\d{3}"))],
+  on = "V1",
+  nomatch = 0,
+  as.numeric(V1)
+]
 
-  rois_amy_tau.dt <-
-    dict_roi[LABEL_id %in% rois_amy_tau_a][order(LABEL_name)]
+  rois_amy_tau.dt <- dict_roi[LABEL_id %in% rois_amy_tau_a][order(LABEL_name)]
 
   rois_amy_tau.dt[, LIST := "ANY"]
   rois_amy_tau.dt[LABEL_id %in% rois_amy_tau_b, LIST := "BOTH"]
 
-  write_rds(rois_amy_tau.dt, here("data/rds/cerebra_rois_amy_tau_moca.rds"))
+  saveRDS(rois_amy_tau.dt, here("data/rds/cerebra_rois_amy_tau_moca.rds"))
   rm(rois_amy_tau_a, rois_amy_tau_b)
 }

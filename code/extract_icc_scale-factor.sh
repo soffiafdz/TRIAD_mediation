@@ -7,7 +7,7 @@ set -xu
 
 HERE=/ipl/ipl27/sfernandez/hvr_pet
 LIST=${HERE}/triad.lst
-VOLUMES=${HERE}/data/derivatives/icc_scale.csv
+VOLUMES=${HERE}/data/derivatives/icc_scale_2023.csv
 
 echo "PTID,SCANDATE,ICC,SCALEFACTOR" > $VOLUMES
 
@@ -18,9 +18,14 @@ do
 	ptid=$(printf $id | cut -d, -f1)
 	date=$(printf $id | cut -d, -f2)
 
-	stx=${HERE}/data/t1/stx_${ptid}_${date}_t1_n.mnc
-	mask=${HERE}/data/masks/stx_${ptid}_${date}_dmask.mnc
-	xfm=${HERE}/data/xfms/stx_${ptid}_${date}_t1_lin.xfm
+	#TODO: change data to where the data2023 is
+	#stx=${HERE}/data/data_2023/t1/stx_${ptid}_${date}_t1_n.mnc
+	mask=${HERE}/data/data_2023/masks/stx_${ptid}_${date}_dmask.mnc
+	xfm=${HERE}/data/data_2023/t1_xfm/stx_${ptid}_${date}_t1_lin.xfm
+	if [ ! -f $mask ] || [ ! -f $xfm ]
+	then
+		continue
+	fi
 
 	# SCALEFACTOR from STX2 xfm
 	scale=$(xfm2param $xfm |
