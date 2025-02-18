@@ -7,3 +7,6 @@ export/
 lists/
 tables/
 *.xfm
+.README_*
+.Renviron
+.nvimcomlib
