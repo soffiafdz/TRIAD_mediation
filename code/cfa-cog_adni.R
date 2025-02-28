@@ -248,7 +248,7 @@ items.lst[["ExecFun"]][["MOCA"]] <- c(
 rm(col, cols, prev_cols)
 
 
-### mCFA
+### CFA
 ## Models
 mods.lst    <- Map(
   function(ItemsList, FactorName) {
@@ -316,6 +316,7 @@ cog_lat.dt    <- Map(
 
 saveRDS(cog_lat.dt, here("data/rds/adni_cfa-factors_cog-domains.rds"))
 
+# TODO: Figure out what to do with this.
 ### OUTPUT
 #outmds <- here('data/derivatives', paste0('mcfa-cognition_mri', 1:2, '.md'))
 #for (outmd in outmds) {
