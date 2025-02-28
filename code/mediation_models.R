@@ -53,11 +53,13 @@ triad.dt <- triad.dt[
 
 ## Labels:
 labels.v <- c(
-  AGE_scan = "Age",
+  AGE = "Age",
   SEX = "Sex",
+  AMY = "Amyloid (PET)",
+  TAU = "Tau (PET)",
   APOE_n = "APOE4",
   EDUC = "Education",
-  SEX_APOE = "SxA4",
+  SEX_APOE = "Sex*APOE4",
   HVR_inv = "HC-atrophy",
   MOCA = "MoCA"
 )
@@ -118,19 +120,34 @@ if (file.exists(fname)) {
 rm(fname)
 
 if (print_plots) {
-  mod_orig.lst[["PLOT"]] <- lavaanPlot2(
-    model = mod_orig.lst[["FIT"]],
-    labels = labels.v,
-    graph_options = list(rankdir = "LR"),
-    node_options = list(shape = "box"),
-    edge_options = list(color = "grey"),
-    coef_labels = T,
-    stand = T,
-    stars = "regress"
-  )
+  coefs <- extract_coefs(mod_orig.lst[["FIT"]], stand = TRUE) |> setDT()
+  fpaths <- c("skel", "reg") |>
+    sprintf(fmt = "plots/med_aaic2025_%s.pdf") |>
+    here()
 
-  here("data/derivatives/med_aaic2025.pdf") |>
-    embed_plot_pdf(plot = mod_orig.lst[["PLOT"]])
+  ## Structural model (skeleton):
+  coefs["~", on = "op"] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL)
+    edf <- create_edges(coefs, ndf, list(color = "grey"), coef_labels = FALSE)
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[1])
+
+  ## Structural model (Significant paths):
+  coefs["~", on = "op"]["" != stars] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL)
+    edf <- create_edges(
+      coefs,
+      ndf,
+      list(color = "grey"),
+      coef_labels = TRUE,
+      stars = "regress"
+    )
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[2])
 }
 
 ### Updated model with moderation
@@ -191,17 +208,32 @@ if (file.exists(fname)) {
 rm(fname)
 
 if (print_plots) {
-  mod.lst[["PLOT"]] <- lavaanPlot2(
-    model = mod.lst[["FIT"]],
-    labels = labels.v,
-    graph_options = list(rankdir = "LR"),
-    node_options = list(shape = "box"),
-    edge_options = list(color = "grey"),
-    coef_labels = T,
-    stand = T,
-    stars = "regress"
-  )
+  coefs <- extract_coefs(mod.lst[["FIT"]], stand = TRUE) |> setDT()
+  fpaths <- c("skel", "reg") |>
+    sprintf(fmt = "plots/med_aaic2025_moderation_%s.pdf") |>
+    here()
 
-  here("data/derivatives/med_aaic2025_moderation.pdf") |>
-    embed_plot_pdf(plot = mod.lst[["PLOT"]])
+  ## Structural model (skeleton):
+  coefs["~", on = "op"] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL)
+    edf <- create_edges(coefs, ndf, list(color = "grey"), coef_labels = FALSE)
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[1])
+
+  ## Structural model (Significant paths):
+  coefs["~", on = "op"]["" != stars] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL)
+    edf <- create_edges(
+      coefs,
+      ndf,
+      list(color = "grey"),
+      coef_labels = TRUE,
+      stars = "regress"
+    )
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[2])
 }
