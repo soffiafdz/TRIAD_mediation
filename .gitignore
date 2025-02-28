@@ -1,8 +1,10 @@
 data/
+code/py_deep_seg
+code/darq
 ohbm/
+aaic/
 libraries/
 plots/
-aaic/
 export/
 lists/
 tables/
