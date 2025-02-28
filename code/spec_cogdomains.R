@@ -154,24 +154,24 @@ cogdomains.lst   <- list(
 ## List for cognitive domains
 ordinal_items.lst   <- list(
   MMSE = c( ## All are binary
-    # Orientation
-    "MMDATE", "MMYEAR", "MMMONTH", "MMDAY", "MMSEASON",
-    "MMHOSPIT", "MMFLOOR", "MMCITY", "MMAREA", "MMSTATE",
+    ## Orientation
+    #"MMDATE", "MMYEAR", "MMMONTH", "MMDAY", "MMSEASON",
+    #"MMHOSPIT", "MMFLOOR", "MMCITY", "MMAREA", "MMSTATE",
+    #"MMREPEAT",   # Repeat after instructor
+    #"MMHAND",     # Take paper
+    #"MMFOLD",     # Fold paper
+    #"MMONFLR",    # Place paper on floor
+    #"MMREAD",     # Read paper
+    #"MMWRITE",    # Write a sentence
+    #"MMDRAW"      # Interlocking pentagons
     # Word (Ball): immediate/delayed recall
     "WORD1", "WORD1DL",
-    "MMREPEAT",   # Repeat after instructor
-    "MMHAND",     # Take paper
-    "MMFOLD",     # Fold paper
-    "MMONFLR",    # Place paper on floor
-    "MMREAD",     # Read paper
-    "MMWRITE",    # Write a sentence
-    "MMDRAW"      # Interlocking pentagons
   ),
-  NEUROBAT = c(
-    # Clock (Binary)
-    "CLOCKCIRC", "CLOCKSYM", "CLOCKNUM", "CLOCKHAND", "CLOCKTIME",
-    "COPYCIRC", "COPYSYM", "COPYNUM", "COPYTIME"
-  ),
+  #NEUROBAT = c(
+    ## Clock (Binary)
+    #"CLOCKCIRC", "CLOCKSYM", "CLOCKNUM", "CLOCKHAND", "CLOCKTIME",
+    #"COPYCIRC", "COPYSYM", "COPYNUM", "COPYTIME"
+  #),
   MOCA = c(
     # Abstraction (Binary)
     "ABSMEAS", "ABSTRAN",
@@ -261,6 +261,21 @@ cog.lst[["MOCA"]] <- cog.lst[["MOCA"]][
   ]}() |>
     unique()
 
+# Memory — MMSE: Orientation
+cols <- cogdomains.lst[["Memory"]][["MMSE"]] |>
+  grep(pattern = "MM", value = TRUE) |>
+  tolower() |>
+  sprintf(fmt = "MMSE_%s")
+
+cog.lst[["MMSE"]] <- cog.lst[["MMSE"]] |>
+  melt(measure = cols) |>
+  { \(DT) DT[
+    , MMSE_orientation := sum(value), .(PTID, MMSE_visdate)
+  ][
+    , c("variable", "value") := NULL
+  ]}() |>
+    unique()
+
 # Executive function — MoCA: Serial 7 (Total)
 cols <- cog.lst[["MOCA"]] |>
   names() |>
@@ -271,6 +286,35 @@ cog.lst[["MOCA"]] <- cog.lst[["MOCA"]] |>
   melt(measure = cols) |>
   {\(DT) DT[
     , MOCA_serial := sum(value), .(PTID, MOCA_visdate)
+  ][
+    , c("variable", "value") := NULL
+  ]}() |>
+    unique()
+
+# Executive function — NEUROBAT (CLOCK)
+cols <- cog.lst[["NEUROBAT"]] |>
+  names() |>
+  grep(pattern = "NEUROBAT_clock", value = T) |>
+  sort()
+
+cog.lst[["NEUROBAT"]] <- cog.lst[["NEUROBAT"]] |>
+  melt(measure = cols) |>
+  {\(DT) DT[
+    , NEUROBAT_clock := sum(value), .(PTID, NEUROBAT_visdate)
+  ][
+    , c("variable", "value") := NULL
+  ]}() |>
+    unique()
+
+# Language - MMSE
+cols <- cogdomains.lst[["Language"]][["MMSE"]] |>
+  tolower() |>
+  sprintf(fmt = "MMSE_%s")
+
+cog.lst[["MMSE"]] <- cog.lst[["MMSE"]] |>
+  melt(measure = cols) |>
+  { \(DT) DT[
+    , MMSE_instructions := sum(value), .(PTID, MMSE_visdate)
   ][
     , c("variable", "value") := NULL
   ]}() |>
@@ -288,6 +332,9 @@ cog.lst[["MOCA"]] <- cog.lst[["MOCA"]] |>
 
 ## Apply changes to the cogdomains list
 cogdomains.lst[["Memory"]][["MOCA"]] <- c("REGIS", "DELSUM")
+cogdomains.lst[["Memory"]][["MMSE"]] <- c("ORIENTATION", "WORD1", "WORD1DL")
+cogdomains.lst[["Language"]][["MMSE"]] <- "INSTRUCTIONS"
+cogdomains.lst[["ExecFun"]][["NEUROBAT"]] <- c("CLOCK", "TRAASCOR", "TRABSCOR")
 cogdomains.lst[["ExecFun"]][["MOCA"]] <- c(
   grep(
     "SERIAL",
