@@ -339,21 +339,50 @@ labels.v <- c(
 )
 
 if (PRINTPLOTS) {
-  sem_plot_mem <- lavaanPlot2(
-    model = fits.lst[["Memory"]],
-    labels = labels.v,
-    graph_options = list(rankdir = "LR"),
-    #node_options = list(shape = "box"),
-    edge_options = list(color = "grey"),
-    coef_labels = T,
-    stand = T,
-    stars = "regress"
-  )
+  coefs <- extract_coefs(fits.lst[["Memory"]], stand = TRUE) |> setDT()
+  fpaths <- c("lat", "skel", "reg") |>
+    sprintf(fmt = "plots/adni_sem_path-mem_%s.pdf") |>
+    here()
 
-  embed_plot_pdf(
-    sem_plot_mem,
-    here("plots/adni_sem_path-mem.pdf")
-  )
+  ## Measurement model:
+  coefs["=~", on = "op"] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, node_options = NULL)
+    edf <- create_edges(
+      coefs,
+      ndf,
+      list(color = "grey"),
+      coef_labels = TRUE,
+      stars = "latent"
+    )
+    dot <- convert_graph(ndf, edf, list(rankdir = "RL"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[1])
+
+
+  ## Structural model (skeleton):
+  coefs["~", on = "op"] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL) |> setDT()
+    ndf["Memory", on = "label", let(shape = "oval", group = "latent")]
+    edf <- create_edges(coefs, ndf, list(color = "grey"), coef_labels = FALSE)
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[2])
+
+  ## Structural model (Significant paths):
+  coefs["~", on = "op"]["" != stars] |>
+  {\(coefs) {
+    ndf <- create_nodes(coefs, labels.v, NULL) |> setDT()
+    ndf["Memory", on = "label", let(shape = "oval", group = "latent")]
+    edf <- create_edges(
+      coefs,
+      ndf,
+      list(color = "grey"),
+      coef_labels = TRUE,
+      stars = "regress"
+    )
+    dot <- convert_graph(ndf, edf, list(rankdir = "LR"))
+    lavaanPlot2(gr_viz = dot)
+    }}() |> embed_plot_pdf(fpaths[3])
 }
-
-
