@@ -7,11 +7,6 @@ library(labelled)
 library(lubridate)
 library(lavaan)
 library(lavaanPlot)
-#library(lme4)
-#library(stringr)
-#library(stargazer)
-#library(progress)
-#library(parameters)
 
 REFITMODELS <- F
 PRINTPLOTS <- T
@@ -228,10 +223,10 @@ clean_data.lst <- lapply(
     ]
     DT[, (grep("__", names(DT), value = TRUE)) := NULL]
     setcolorder(DT, "COG_avg_diff", after = "TAU")
-    #na.omit(DT)
-    DT <- na.omit(DT)
-    items_ord <- ord_items[ord_items %in% items]
-    DT[, (items_ord) := lapply(.SD, ordered), .SDcols = items_ord]
+    na.omit(DT)
+    #DT <- na.omit(DT)
+    #items_ord <- ord_items[ord_items %in% items]
+    #DT[, (items_ord) := lapply(.SD, ordered), .SDcols = items_ord]
   }
 )
 
@@ -305,18 +300,60 @@ models.lst <- Map(
 #)
 
 ### Model fitting
-fits.lst <- Map(
-  \(model, DT){
-    sem(
-      model = model,
-      data = DT,
-      estimator = "WLSMV",
-      #cluster = "PTID",
-      #control = list(iter.max = 20000)
-      std.lv = T
-    )
-  },
-  models.lst[1],
-  clean_data.lst[1]
+fpath <- here("data/rds/adni_sem_path-cog.rds")
+if (any(!file.exists(fpath), REFITMODELS)) {
+  fits.lst <- Map(
+    \(model, DT){
+      sem(
+        model = model,
+        data = DT,
+        estimator = "WLSMV",
+        #cluster = "PTID",
+        #control = list(iter.max = 20000)
+        std.lv = T
+      )
+    },
+    models.lst[-3],
+    clean_data.lst[-3]
+  )
+  saveRDS(fits.lst, fpath)
+} else {
+  fits.lst <- readRDS(fpath)
+}
+rm(fpath)
+
+### Model Plots
+## Only Memory, since it is the relevant one
+labels.v <- c(
+  AGE = "Age",
+  SEX = "Sex",
+  EDUC = "Education",
+  SX_A4 = "Sex*APOE4",
+  HVRi = "HC-atrophy",
+  AMY = "Amyloid (PET)",
+  AMY_tracer = "Amyloid tracer",
+  AMY_diff = "Time diff - PET:MRI",
+  TAU_diff = "Time diff - PET:MRI",
+  TAU = "Tau (PET)",
+  COG_avg_diff = "Time diff - Eval:MRI"
 )
+
+if (PRINTPLOTS) {
+  sem_plot_mem <- lavaanPlot2(
+    model = fits.lst[["Memory"]],
+    labels = labels.v,
+    graph_options = list(rankdir = "LR"),
+    #node_options = list(shape = "box"),
+    edge_options = list(color = "grey"),
+    coef_labels = T,
+    stand = T,
+    stars = "regress"
+  )
+
+  embed_plot_pdf(
+    sem_plot_mem,
+    here("plots/adni_sem_path-mem.pdf")
+  )
+}
+
 
